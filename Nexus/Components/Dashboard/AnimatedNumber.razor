@@ -1,0 +1,39 @@
+@DisplayValue
+
+@code {
+    [Parameter, EditorRequired] public int Value { get; set; }
+
+    private int DisplayValue;
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+
+        int from = DisplayValue;
+        int to = Value;
+
+        if (from == to) return;
+
+        const int durationMs = 1000;
+        const int steps = 60;
+        const int intervalMs = durationMs / steps;
+
+        for (int i = 1; i <= steps; i++)
+        {
+            // Ease-out cubic: progress = 1 - (1-t)^3
+            double t = (double)i / steps;
+            double progress = 1.0 - Math.Pow(1.0 - t, 3);
+            DisplayValue = (int)Math.Round(from + (to - from) * progress);
+            StateHasChanged();
+
+            try { await Task.Delay(intervalMs, token); }
+            catch (TaskCanceledException) { return; }
+        }
+
+        DisplayValue = to;
+        StateHasChanged();
+    }
+}
