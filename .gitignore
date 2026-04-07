@@ -583,5 +583,7 @@ FodyWeavers.xsd
 # End of https://www.toptal.com/developers/gitignore/api/csharp,visualstudio
 
 # Claude
-
 .claude/settings.local.json
+
+#macOS
+.DS_Store
