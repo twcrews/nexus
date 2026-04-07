@@ -1,0 +1,31 @@
+.scroll-text-container {
+    overflow: hidden;
+    width: 100%;
+    display: block;
+}
+
+.scroll-text-inner {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.scroll-text-inner.overflows {
+    animation: scroll-text 30s linear infinite;
+}
+
+/* Timing breakdown (30s total):
+   0s–5s   (0%–16.67%):  pause at start
+   5s–15s  (16.67%–50%): scroll to end
+   15s–20s (50%–66.67%): pause at end
+   20s–30s (66.67%–100%): scroll back to start */
+@keyframes scroll-text {
+    0%, 16.67% {
+        transform: translateX(0);
+    }
+    50%, 66.67% {
+        transform: translateX(var(--scroll-distance));
+    }
+    100% {
+        transform: translateX(0);
+    }
+}

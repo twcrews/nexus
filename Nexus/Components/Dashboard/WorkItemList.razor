@@ -14,7 +14,7 @@
         <RadzenDataGridColumn TItem="WorkItem" Property="Title" Title="Title">
             <Template Context="item">
                 <RadzenStack Gap="4px">
-                    <span>@item.Title</span>
+                    <ScrollText>@item.Title</ScrollText>
                     @if (item.Labels.Count > 0)
                     {
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="4px" Wrap="FlexWrap.Wrap">

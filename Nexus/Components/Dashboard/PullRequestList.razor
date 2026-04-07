@@ -14,10 +14,12 @@
         <RadzenDataGridColumn TItem="PullRequest" Property="Title" Title="Title">
             <Template Context="item">
                 <RadzenStack Gap="3px">
-                    <span>@item.Title</span>
-                    <span style="font-size:0.7rem;opacity:0.55;font-family:'JetBrains Mono',monospace;">
-                        @item.Source.Repository/@item.Source.Branch → @item.Target.Branch
-                    </span>
+                    <ScrollText>@item.Title</ScrollText>
+                    <ScrollText>
+                        <span style="font-size:0.7rem;opacity:0.55;font-family:'JetBrains Mono',monospace;">
+                            @item.Source.Repository/@item.Source.Branch → @item.Target.Branch
+                        </span>
+                    </ScrollText>
                 </RadzenStack>
             </Template>
         </RadzenDataGridColumn>
