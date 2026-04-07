@@ -1,0 +1,76 @@
+<RadzenDataGrid Data="@_items" TItem="PullRequest" AllowSorting="true"
+                EmptyText="No pull requests.">
+    <Columns>
+        <RadzenDataGridColumn TItem="PullRequest" Property="Status" Title="Status" Width="95px">
+            <Template Context="item">
+                <RadzenBadge Text="@item.Status.ToString()" BadgeStyle="@StatusStyle(item.Status)" />
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="PullRequest" Property="Id" Title="ID" Width="85px">
+            <Template Context="item">
+                <span style="font-size:0.75rem;font-family:'JetBrains Mono',monospace;opacity:0.6;">@item.Id</span>
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="PullRequest" Property="Title" Title="Title">
+            <Template Context="item">
+                <RadzenStack Gap="3px">
+                    <span>@item.Title</span>
+                    <span style="font-size:0.7rem;opacity:0.55;font-family:'JetBrains Mono',monospace;">
+                        @item.Source.Repository/@item.Source.Branch → @item.Target.Branch
+                    </span>
+                </RadzenStack>
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="PullRequest" Title="Creator" Width="160px" Sortable="false">
+            <Template Context="item">
+                <UserPill User="item.Creator" />
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="PullRequest" Title="Reviewers" Width="170px" Sortable="false">
+            <Template Context="item">
+                @if (item.Reviewers.Count == 0)
+                {
+                    <span style="opacity:0.35;">—</span>
+                }
+                else
+                {
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="4px">
+                        <UserPill User="item.Reviewers[0]" />
+                        @if (item.Reviewers.Count > 1)
+                        {
+                            <span style="font-size:0.75rem;opacity:0.55;">+@(item.Reviewers.Count - 1)</span>
+                        }
+                    </RadzenStack>
+                }
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="PullRequest" Property="UpdatedAt" Title="Updated" Width="105px">
+            <Template Context="item">
+                <span style="font-size:0.75rem;opacity:0.6;">@Relative(item.UpdatedAt)</span>
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<PullRequest>? Items { get; set; }
+
+    private List<PullRequest> _items => Items?.ToList() ?? [];
+
+    private static BadgeStyle StatusStyle(PullRequestStatus s) => s switch
+    {
+        PullRequestStatus.Draft  => BadgeStyle.Secondary,
+        PullRequestStatus.Open   => BadgeStyle.Primary,
+        PullRequestStatus.Merged => BadgeStyle.Success,
+        PullRequestStatus.Closed => BadgeStyle.Light,
+        _                        => BadgeStyle.Secondary,
+    };
+
+    private static string Relative(DateTimeOffset dt)
+    {
+        var d = DateTimeOffset.UtcNow - dt;
+        if (d.TotalDays >= 1)  return $"{(int)d.TotalDays}d ago";
+        if (d.TotalHours >= 1) return $"{(int)d.TotalHours}h ago";
+        return $"{(int)d.TotalMinutes}m ago";
+    }
+}

@@ -1,7 +1,85 @@
-﻿@page "/"
+@page "/"
+@inject IDataProvider DataProvider
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Nexus</PageTitle>
 
-<h1>Hello, world!</h1>
+@if (!_loaded)
+{
+    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="height:60vh;">
+        <RadzenProgressBarCircular Mode="ProgressBarMode.Indeterminate" Value="100" />
+    </RadzenStack>
+}
+else
+{
+    <div class="rz-p-4">
+        <RadzenRow Gap="1rem" class="rz-mb-5">
+            <RadzenColumn Size="6" SizeMD="3">
+                <MetricCard Count="@_assignedWorkItems.Count()" Label="work items assigned to you" Icon="person" />
+            </RadzenColumn>
+            <RadzenColumn Size="6" SizeMD="3">
+                <MetricCard Count="@_unassignedWorkItems.Count()" Label="unassigned work items" Icon="inbox" />
+            </RadzenColumn>
+            <RadzenColumn Size="6" SizeMD="3">
+                <MetricCard Count="@_assignedPrs.Count()" Label="PRs assigned to you" Icon="rate_review" />
+            </RadzenColumn>
+            <RadzenColumn Size="6" SizeMD="3">
+                <MetricCard Count="@_unassignedPrs.Count()" Label="unassigned PRs" Icon="call_merge" />
+            </RadzenColumn>
+        </RadzenRow>
+        <RadzenRow Gap="1rem">
+            <RadzenColumn Size="12" SizeLG="6">
+                <RadzenCard>
+                    <RadzenText TextStyle="TextStyle.H5" style="margin:0 0 1rem;">Work Items</RadzenText>
+                    <RadzenTabs>
+                        <Tabs>
+                            <RadzenTabsItem Text="@($"Assigned to me ({_assignedWorkItems.Count()})")">
+                                <WorkItemList Items="_assignedWorkItems" ShowAssignee="false" />
+                            </RadzenTabsItem>
+                            <RadzenTabsItem Text="@($"Unassigned ({_unassignedWorkItems.Count()})")">
+                                <WorkItemList Items="_unassignedWorkItems" ShowAssignee="true" />
+                            </RadzenTabsItem>
+                        </Tabs>
+                    </RadzenTabs>
+                </RadzenCard>
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeLG="6">
+                <RadzenCard>
+                    <RadzenText TextStyle="TextStyle.H5" style="margin:0 0 1rem;">Pull Requests</RadzenText>
+                    <RadzenTabs>
+                        <Tabs>
+                            <RadzenTabsItem Text="@($"Assigned to me ({_assignedPrs.Count()})")">
+                                <PullRequestList Items="_assignedPrs" />
+                            </RadzenTabsItem>
+                            <RadzenTabsItem Text="@($"Unassigned ({_unassignedPrs.Count()})")">
+                                <PullRequestList Items="_unassignedPrs" />
+                            </RadzenTabsItem>
+                        </Tabs>
+                    </RadzenTabs>
+                </RadzenCard>
+            </RadzenColumn>
 
-Welcome to your new app.
+        </RadzenRow>
+    </div>
+}
+
+@code {
+    private bool _loaded;
+    private IEnumerable<WorkItem> _assignedWorkItems = [];
+    private IEnumerable<WorkItem> _unassignedWorkItems = [];
+    private IEnumerable<PullRequest> _assignedPrs = [];
+    private IEnumerable<PullRequest> _unassignedPrs = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var wi   = DataProvider.GetAssignedWorkItemsAsync();
+        var unwi = DataProvider.GetUnassignedWorkItemsAsync();
+        var pr   = DataProvider.GetAssignedPullRequestsAsync();
+        var unpr = DataProvider.GetUnassignedPullRequestsAsync();
+
+        _assignedWorkItems   = await wi;
+        _unassignedWorkItems = await unwi;
+        _assignedPrs         = await pr;
+        _unassignedPrs       = await unpr;
+        _loaded = true;
+    }
+}

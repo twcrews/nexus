@@ -1,0 +1,18 @@
+<RadzenCard Style="padding:1.25rem 1.5rem;">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+        <RadzenIcon Icon="@Icon" Style="font-size:4rem;font-weight:200;opacity:0.5;flex-shrink:0;" />
+        <RadzenStack Gap="0.2rem">
+            <RadzenText TextStyle="TextStyle.DisplayH4"
+                        style="font-size:2.5rem;font-weight:700;line-height:1;margin:0;">
+                @Count
+            </RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" style="opacity:0.6;margin:0;">@Label</RadzenText>
+        </RadzenStack>
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    [Parameter, EditorRequired] public int Count { get; set; }
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+}

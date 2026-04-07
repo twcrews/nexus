@@ -1,0 +1,103 @@
+<RadzenDataGrid Data="@_items" TItem="WorkItem" AllowSorting="true"
+                EmptyText="No work items.">
+    <Columns>
+        <RadzenDataGridColumn TItem="WorkItem" Property="Type" Title="Type" Width="120px">
+            <Template Context="item">
+                <RadzenBadge Text="@SplitPascal(item.Type)" BadgeStyle="@TypeStyle(item.Type)" />
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="WorkItem" Property="Id" Title="ID" Width="85px">
+            <Template Context="item">
+                <span style="font-size:0.75rem;font-family:'JetBrains Mono',monospace;opacity:0.6;">@item.Id</span>
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="WorkItem" Property="Title" Title="Title">
+            <Template Context="item">
+                <RadzenStack Gap="4px">
+                    <span>@item.Title</span>
+                    @if (item.Labels.Count > 0)
+                    {
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="4px" Wrap="FlexWrap.Wrap">
+                            @foreach (var label in item.Labels)
+                            {
+                                <RadzenBadge Text="@label" BadgeStyle="BadgeStyle.Light"
+                                             style="font-size:0.65rem;" />
+                            }
+                        </RadzenStack>
+                    }
+                </RadzenStack>
+            </Template>
+        </RadzenDataGridColumn>
+        @if (ShowAssignee)
+        {
+            <RadzenDataGridColumn TItem="WorkItem" Title="Assignee" Width="160px" Sortable="false">
+                <Template Context="item">
+                    @if (item.Assignee is not null)
+                    {
+                        <UserPill User="item.Assignee" />
+                    }
+                    else
+                    {
+                        <span style="opacity:0.35;">—</span>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+        }
+        <RadzenDataGridColumn TItem="WorkItem" Property="Status" Title="Status" Width="130px">
+            <Template Context="item">
+                <RadzenBadge Text="@SplitPascal(item.Status)" BadgeStyle="@StatusStyle(item.Status)" />
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="WorkItem" Property="UpdatedAt" Title="Updated" Width="105px">
+            <Template Context="item">
+                <span style="font-size:0.75rem;opacity:0.6;">@Relative(item.UpdatedAt)</span>
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<WorkItem>? Items { get; set; }
+    [Parameter] public bool ShowAssignee { get; set; } = true;
+
+    private List<WorkItem> _items => Items?.ToList() ?? [];
+
+    private static string SplitPascal<T>(T value) where T : Enum
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in value.ToString()!)
+        {
+            if (char.IsUpper(ch) && sb.Length > 0) sb.Append(' ');
+            sb.Append(ch);
+        }
+        return sb.ToString();
+    }
+
+    private static BadgeStyle TypeStyle(WorkItemType t) => t switch
+    {
+        WorkItemType.Bug       => BadgeStyle.Danger,
+        WorkItemType.Task      => BadgeStyle.Info,
+        WorkItemType.UserStory => BadgeStyle.Primary,
+        WorkItemType.Feature   => BadgeStyle.Success,
+        WorkItemType.Epic      => BadgeStyle.Warning,
+        _                      => BadgeStyle.Secondary,
+    };
+
+    private static BadgeStyle StatusStyle(WorkItemStatus s) => s switch
+    {
+        WorkItemStatus.New                                        => BadgeStyle.Info,
+        WorkItemStatus.Active or WorkItemStatus.InProgress        => BadgeStyle.Primary,
+        WorkItemStatus.Resolved                                   => BadgeStyle.Success,
+        WorkItemStatus.Closed                                     => BadgeStyle.Light,
+        WorkItemStatus.Blocked                                    => BadgeStyle.Danger,
+        _                                                         => BadgeStyle.Secondary,
+    };
+
+    private static string Relative(DateTimeOffset dt)
+    {
+        var d = DateTimeOffset.UtcNow - dt;
+        if (d.TotalDays >= 1)  return $"{(int)d.TotalDays}d ago";
+        if (d.TotalHours >= 1) return $"{(int)d.TotalHours}h ago";
+        return $"{(int)d.TotalMinutes}m ago";
+    }
+}
