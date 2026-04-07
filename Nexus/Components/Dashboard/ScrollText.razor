@@ -1,16 +1,7 @@
-@inject IJSRuntime JS
-
-<div class="scroll-text-container" @ref="_container">
+<div class="scroll-text-container">
     <span class="scroll-text-inner">@ChildContent</span>
 </div>
 
 @code {
     [Parameter, EditorRequired] public RenderFragment? ChildContent { get; set; }
-
-    private ElementReference _container;
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        await JS.InvokeVoidAsync("scrollText.init", _container);
-    }
 }

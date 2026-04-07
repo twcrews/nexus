@@ -1,4 +1,5 @@
 .scroll-text-container {
+    container-type: inline-size;
     overflow: hidden;
     width: 100%;
     display: block;
@@ -7,9 +8,6 @@
 .scroll-text-inner {
     display: inline-block;
     white-space: nowrap;
-}
-
-.scroll-text-inner.overflows {
     animation: scroll-text 30s linear infinite;
 }
 
@@ -17,13 +15,19 @@
    0s–5s   (0%–16.67%):  pause at start
    5s–15s  (16.67%–50%): scroll to end
    15s–20s (50%–66.67%): pause at end
-   20s–30s (66.67%–100%): scroll back to start */
+   20s–30s (66.67%–100%): scroll back to start
+
+   translateX(min(0px, calc(-100% + 100cqw))):
+     -100% = element's own width (full leftward shift)
+     +100cqw = container width (shift back right)
+     net = -(elementWidth - containerWidth) = exact overflow amount
+     min(0px, ...) = clamps to 0 when text fits, so no movement occurs */
 @keyframes scroll-text {
     0%, 16.67% {
         transform: translateX(0);
     }
     50%, 66.67% {
-        transform: translateX(var(--scroll-distance));
+        transform: translateX(min(0px, calc(-100% + 100cqw)));
     }
     100% {
         transform: translateX(0);
