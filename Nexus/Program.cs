@@ -1,5 +1,6 @@
 using Nexus.Components;
 using Nexus.Providers;
+using Nexus.Services;
 using Radzen;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,6 +11,7 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddRadzenComponents();
 builder.Services.AddScoped<IDataProvider, DummyProvider>();
+builder.Services.AddScoped<RefreshService>();
 
 var app = builder.Build();
 

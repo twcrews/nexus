@@ -1,4 +1,6 @@
 @inject IDataProvider DataProvider
+@inject RefreshService RefreshService
+@implements IDisposable
 
 <PageTitle>Nexus</PageTitle>
 
@@ -68,7 +70,16 @@ else
     private IEnumerable<PullRequest> _assignedPrs = [];
     private IEnumerable<PullRequest> _unassignedPrs = [];
 
+    private CancellationTokenSource _cts = new();
+
     protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _loaded = true;
+        _ = RunRefreshLoopAsync(_cts.Token);
+    }
+
+    private async Task RefreshAsync()
     {
         var wi   = DataProvider.GetAssignedWorkItemsAsync();
         var unwi = DataProvider.GetUnassignedWorkItemsAsync();
@@ -79,6 +90,19 @@ else
         _unassignedWorkItems = await unwi;
         _assignedPrs         = await pr;
         _unassignedPrs       = await unpr;
-        _loaded = true;
+
+        RefreshService.NotifyRefreshed();
     }
+
+    private async Task RunRefreshLoopAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
+        while (await timer.WaitForNextTickAsync(ct))
+        {
+            await RefreshAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose() => _cts.Cancel();
 }

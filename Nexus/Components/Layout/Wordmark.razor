@@ -44,7 +44,7 @@
 </svg>
 
 @code {
-    private string TextFill => ThemeService.Theme.Contains("dark") ? "#F0F4FF" : "#06255F";
+    private string TextFill => (ThemeService.Theme?.Contains("dark") ?? false ? "#F0F4FF" : "#06255F");
 
     protected override void OnInitialized()
     {

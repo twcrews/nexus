@@ -45,36 +45,21 @@ public class DummyProvider : IDataProvider
         "perf-improvements", "multi-org-support",
     ];
 
-    private readonly IReadOnlyList<WorkItem> _assignedWorkItems;
-    private readonly IReadOnlyList<WorkItem> _unassignedWorkItems;
-    private readonly IReadOnlyList<PullRequest> _assignedPullRequests;
-    private readonly IReadOnlyList<PullRequest> _unassignedPullRequests;
-
-    public DummyProvider()
-    {
-        var rng = new Random(42);
-        var now = DateTimeOffset.UtcNow;
-        var users = Names
-            .Select(n => new UserReference(n, $"https://i.pravatar.cc/64?u={Uri.EscapeDataString(n)}"))
-            .ToArray();
-
-        _assignedWorkItems = GenerateWorkItems(rng, users, now, count: 8, assignedTo: users[0]);
-        _unassignedWorkItems = GenerateWorkItems(rng, users, now, count: 7, assignedTo: null);
-        _assignedPullRequests = GeneratePullRequests(rng, users, now, count: 5, assignedTo: users[0]);
-        _unassignedPullRequests = GeneratePullRequests(rng, users, now, count: 5, assignedTo: null);
-    }
+    private static readonly UserReference[] Users = Names
+        .Select(n => new UserReference(n, $"https://i.pravatar.cc/64?u={Uri.EscapeDataString(n)}"))
+        .ToArray();
 
     public Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync() =>
-        Task.FromResult<IEnumerable<WorkItem>>(_assignedWorkItems);
+        Task.FromResult<IEnumerable<WorkItem>>(GenerateWorkItems(new Random(), Users, DateTimeOffset.UtcNow, count: 8, assignedTo: Users[0]));
 
     public Task<IEnumerable<WorkItem>> GetUnassignedWorkItemsAsync() =>
-        Task.FromResult<IEnumerable<WorkItem>>(_unassignedWorkItems);
+        Task.FromResult<IEnumerable<WorkItem>>(GenerateWorkItems(new Random(), Users, DateTimeOffset.UtcNow, count: 7, assignedTo: null));
 
     public Task<IEnumerable<PullRequest>> GetAssignedPullRequestsAsync() =>
-        Task.FromResult<IEnumerable<PullRequest>>(_assignedPullRequests);
+        Task.FromResult<IEnumerable<PullRequest>>(GeneratePullRequests(new Random(), Users, DateTimeOffset.UtcNow, count: 5, assignedTo: Users[0]));
 
     public Task<IEnumerable<PullRequest>> GetUnassignedPullRequestsAsync() =>
-        Task.FromResult<IEnumerable<PullRequest>>(_unassignedPullRequests);
+        Task.FromResult<IEnumerable<PullRequest>>(GeneratePullRequests(new Random(), Users, DateTimeOffset.UtcNow, count: 5, assignedTo: null));
 
     private static List<WorkItem> GenerateWorkItems(
         Random rng, UserReference[] users, DateTimeOffset now, int count, UserReference? assignedTo)
