@@ -587,3 +587,6 @@ FodyWeavers.xsd
 
 #macOS
 .DS_Store
+
+# ASP.NET Core Data Protection keys (contain unencrypted master keys)
+**/keys/

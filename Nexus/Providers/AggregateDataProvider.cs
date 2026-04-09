@@ -1,8 +1,9 @@
 using Nexus.Models;
+using Nexus.Services;
 
 namespace Nexus.Providers;
 
-public class AggregateDataProvider(IEnumerable<IDataProvider> providers) : IDataProvider
+public class AggregateDataProvider(SessionTokenStore session) : IDataProvider
 {
     public Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync() =>
         AggregateAsync(p => p.GetAssignedWorkItemsAsync());
@@ -16,9 +17,18 @@ public class AggregateDataProvider(IEnumerable<IDataProvider> providers) : IData
     public Task<IEnumerable<PullRequest>> GetUnassignedPullRequestsAsync() =>
         AggregateAsync(p => p.GetUnassignedPullRequestsAsync());
 
+    private IEnumerable<IDataProvider> BuildProviders()
+    {
+        var accounts = session.GetLinkedAccounts();
+
+        // Real providers will be constructed here from accounts.MicrosoftAccounts
+        // and accounts.GitHubAccounts once ADO/GitHub providers are implemented.
+        return accounts.DummyAccounts.Select(t => (IDataProvider)new DummyProvider(t));
+    }
+
     private async Task<IEnumerable<T>> AggregateAsync<T>(Func<IDataProvider, Task<IEnumerable<T>>> fetch)
     {
-        var tasks = providers.Select(async p =>
+        var tasks = BuildProviders().Select(async p =>
         {
             try { return await fetch(p); }
             catch { return Enumerable.Empty<T>(); }

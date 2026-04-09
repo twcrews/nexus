@@ -1,6 +1,8 @@
 @page "/"
 @page "/{**path}"
 @inject RefreshService RefreshService
+@inject SessionTokenStore TokenStore
+@inject DialogService DialogService
 @implements IDisposable
 
 <RadzenComponents />
@@ -19,6 +21,11 @@
                         refreshed @(ElapsedSeconds)s ago
                     </RadzenText>
                 }
+                <RadzenButton Icon="add_link"
+                              Text="@LinkedAccountsLabel"
+                              ButtonStyle="ButtonStyle.Light"
+                              Size="ButtonSize.Small"
+                              Click="@OpenLinkDialog" />
                 <RadzenAppearanceToggle />
             </RadzenStack>
         </RadzenStack>
@@ -37,10 +44,28 @@
         ? (int)Math.Floor((DateTimeOffset.UtcNow - RefreshService.LastRefreshed.Value).TotalSeconds)
         : 0;
 
+    private string LinkedAccountsLabel
+    {
+        get
+        {
+            var count = TokenStore.GetLinkedAccounts().DummyAccounts.Count;
+            return count == 0 ? "Connect account" : $"{count} account{(count == 1 ? "" : "s")}";
+        }
+    }
+
     protected override void OnInitialized()
     {
+        TokenStore.AccountsChanged += OnAccountsChanged;
         _ = RunTickLoopAsync(_cts.Token);
     }
+
+    private async Task OpenLinkDialog()
+    {
+        await DialogService.OpenAsync<LinkDummyAccountDialog>("Connect Dummy Account",
+            options: new DialogOptions { Width = "400px", CloseDialogOnOverlayClick = true });
+    }
+
+    private void OnAccountsChanged() => InvokeAsync(StateHasChanged);
 
     private async Task RunTickLoopAsync(CancellationToken ct)
     {
@@ -51,5 +76,9 @@
         }
     }
 
-    public void Dispose() => _cts.Cancel();
+    public void Dispose()
+    {
+        TokenStore.AccountsChanged -= OnAccountsChanged;
+        _cts.Cancel();
+    }
 }

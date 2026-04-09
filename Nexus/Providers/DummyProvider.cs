@@ -2,7 +2,7 @@ using Nexus.Models;
 
 namespace Nexus.Providers;
 
-public class DummyProvider : IDataProvider
+public class DummyProvider(DummyAccountToken token) : IDataProvider
 {
     private static readonly string[] Names =
     [
@@ -49,19 +49,27 @@ public class DummyProvider : IDataProvider
         .Select(n => new UserReference(n, $"https://i.pravatar.cc/64?u={Uri.EscapeDataString(n)}"))
         .ToArray();
 
+    private UserReference AccountUser => new(
+        token.AccountName,
+        $"https://i.pravatar.cc/64?u={Uri.EscapeDataString(token.AccountName)}");
+
     public Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync() =>
-        Task.FromResult<IEnumerable<WorkItem>>(GenerateWorkItems(new Random(), Users, DateTimeOffset.UtcNow, count: 8, assignedTo: Users[0]));
+        Task.FromResult<IEnumerable<WorkItem>>(
+            GenerateWorkItems(new Random(), Users, DateTimeOffset.UtcNow, count: 8, assignedTo: AccountUser));
 
     public Task<IEnumerable<WorkItem>> GetUnassignedWorkItemsAsync() =>
-        Task.FromResult<IEnumerable<WorkItem>>(GenerateWorkItems(new Random(), Users, DateTimeOffset.UtcNow, count: 7, assignedTo: null));
+        Task.FromResult<IEnumerable<WorkItem>>(
+            GenerateWorkItems(new Random(), Users, DateTimeOffset.UtcNow, count: 7, assignedTo: null));
 
     public Task<IEnumerable<PullRequest>> GetAssignedPullRequestsAsync() =>
-        Task.FromResult<IEnumerable<PullRequest>>(GeneratePullRequests(new Random(), Users, DateTimeOffset.UtcNow, count: 5, assignedTo: Users[0]));
+        Task.FromResult<IEnumerable<PullRequest>>(
+            GeneratePullRequests(new Random(), Users, DateTimeOffset.UtcNow, count: 5, assignedTo: AccountUser));
 
     public Task<IEnumerable<PullRequest>> GetUnassignedPullRequestsAsync() =>
-        Task.FromResult<IEnumerable<PullRequest>>(GeneratePullRequests(new Random(), Users, DateTimeOffset.UtcNow, count: 5, assignedTo: null));
+        Task.FromResult<IEnumerable<PullRequest>>(
+            GeneratePullRequests(new Random(), Users, DateTimeOffset.UtcNow, count: 5, assignedTo: null));
 
-    private static List<WorkItem> GenerateWorkItems(
+    private List<WorkItem> GenerateWorkItems(
         Random rng, UserReference[] users, DateTimeOffset now, int count, UserReference? assignedTo)
     {
         var items = new List<WorkItem>(count);
@@ -76,6 +84,7 @@ public class DummyProvider : IDataProvider
             var labels = Enumerable.Range(0, rng.Next(0, 4))
                 .Select(_ => WorkItemLabels[rng.Next(WorkItemLabels.Length)])
                 .Distinct()
+                .Prepend(token.AccountName)
                 .ToList();
 
             items.Add(new WorkItem(
@@ -95,14 +104,14 @@ public class DummyProvider : IDataProvider
         return items;
     }
 
-    private static List<PullRequest> GeneratePullRequests(
+    private List<PullRequest> GeneratePullRequests(
         Random rng, UserReference[] users, DateTimeOffset now, int count, UserReference? assignedTo)
     {
         var prs = new List<PullRequest>(count);
 
         for (var i = 0; i < count; i++)
         {
-            var repo = RepoNames[rng.Next(RepoNames.Length)];
+            var repo = $"{token.AccountName}/{RepoNames[rng.Next(RepoNames.Length)]}";
             var slug = BranchSlugs[rng.Next(BranchSlugs.Length)];
             var prefix = BranchPrefixes[rng.Next(BranchPrefixes.Length)];
             var createdDaysAgo = rng.Next(1, 30);

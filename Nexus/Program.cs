@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Nexus.Components;
 using Nexus.Providers;
 using Nexus.Services;
@@ -9,22 +10,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+var keyPath = builder.Configuration["DataProtection:KeyPath"]
+    ?? Path.Combine(builder.Environment.ContentRootPath, "keys");
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(keyPath));
+
 builder.Services.AddRadzenComponents();
 builder.Services.AddScoped<SessionTokenStore>();
-builder.Services.AddScoped<IDataProvider>(sp =>
-{
-    var session = sp.GetRequiredService<SessionTokenStore>();
-    var accounts = session.GetLinkedAccounts();
-
-    // Real providers will be constructed here from accounts.MicrosoftAccounts
-    // and accounts.GitHubAccounts once ADO/GitHub providers are implemented.
-    List<IDataProvider> providers =
-    [
-        new DummyProvider(), // remove when real providers are in place
-    ];
-
-    return new AggregateDataProvider(providers);
-});
+builder.Services.AddScoped<IDataProvider, AggregateDataProvider>();
 builder.Services.AddScoped<RefreshService>();
 
 var app = builder.Build();

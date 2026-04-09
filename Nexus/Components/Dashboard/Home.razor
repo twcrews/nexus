@@ -1,5 +1,6 @@
 @inject IDataProvider DataProvider
 @inject RefreshService RefreshService
+@inject SessionTokenStore TokenStore
 @implements IDisposable
 
 <PageTitle>Nexus</PageTitle>
@@ -72,10 +73,19 @@ else
 
     private CancellationTokenSource _cts = new();
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
+        TokenStore.AccountsChanged += OnAccountsChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        await TokenStore.LoadAsync();
         await RefreshAsync();
         _loaded = true;
+        StateHasChanged();
         _ = RunRefreshLoopAsync(_cts.Token);
     }
 
@@ -94,6 +104,12 @@ else
         RefreshService.NotifyRefreshed();
     }
 
+    private async void OnAccountsChanged()
+    {
+        await RefreshAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
     private async Task RunRefreshLoopAsync(CancellationToken ct)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
@@ -104,5 +120,9 @@ else
         }
     }
 
-    public void Dispose() => _cts.Cancel();
+    public void Dispose()
+    {
+        TokenStore.AccountsChanged -= OnAccountsChanged;
+        _cts.Cancel();
+    }
 }

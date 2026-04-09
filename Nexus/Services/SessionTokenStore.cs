@@ -1,8 +1,63 @@
+using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.JSInterop;
 using Nexus.Models;
 
 namespace Nexus.Services;
 
-public class SessionTokenStore
+public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js)
 {
-    public LinkedAccounts GetLinkedAccounts() => new();
+    private const string StorageKey = "nexus.linked-accounts";
+    private const string Purpose = "Nexus.LinkedAccounts.v1";
+
+    private readonly IDataProtector _protector = dpProvider.CreateProtector(Purpose);
+    private LinkedAccounts? _cache;
+
+    public event Action? AccountsChanged;
+
+    /// <summary>
+    /// Loads accounts from localStorage on first call, then returns the cached value.
+    /// Must be called from OnAfterRenderAsync (JS interop is unavailable earlier).
+    /// </summary>
+    public async Task<LinkedAccounts> LoadAsync()
+    {
+        if (_cache is not null)
+            return _cache;
+
+        try
+        {
+            var encrypted = await js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+            if (!string.IsNullOrEmpty(encrypted))
+            {
+                var json = _protector.Unprotect(encrypted);
+                _cache = JsonSerializer.Deserialize<LinkedAccounts>(json) ?? new();
+                return _cache;
+            }
+        }
+        catch
+        {
+            // Corrupt or tampered payload — start fresh.
+        }
+
+        _cache = new();
+        return _cache;
+    }
+
+    /// <summary>Returns the in-memory cache. Returns an empty account list if LoadAsync has not been called yet.</summary>
+    public LinkedAccounts GetLinkedAccounts() => _cache ?? new();
+
+    public async Task LinkDummyAccountAsync(DummyAccountToken token)
+    {
+        var accounts = await LoadAsync();
+        accounts.DummyAccounts.Add(token);
+        await PersistAsync(accounts);
+        AccountsChanged?.Invoke();
+    }
+
+    private async Task PersistAsync(LinkedAccounts accounts)
+    {
+        var json = JsonSerializer.Serialize(accounts);
+        var encrypted = _protector.Protect(json);
+        await js.InvokeVoidAsync("localStorage.setItem", StorageKey, encrypted);
+    }
 }

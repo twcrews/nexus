@@ -1,0 +1,52 @@
+@inject DialogService DialogService
+@inject SessionTokenStore TokenStore
+
+<RadzenStack Gap="1.5rem" Style="min-width: 320px; padding: 0.5rem 0;">
+
+    <RadzenStack AlignItems="AlignItems.Center" Gap="0.5rem">
+        <RadzenIcon Icon="developer_board" Style="font-size: 3rem; opacity: 0.5;" />
+        <RadzenText TextStyle="TextStyle.H5" style="margin: 0;">Dummy Provider</RadzenText>
+        <RadzenText TextStyle="TextStyle.Body2" style="opacity: 0.6; text-align: center; margin: 0;">
+            Nexus is requesting access to your account.
+        </RadzenText>
+    </RadzenStack>
+
+    <RadzenCard Style="padding: 1rem;">
+        <RadzenStack Gap="0.25rem">
+            <RadzenText TextStyle="TextStyle.Overline" style="opacity: 0.5; margin: 0;">Signing in as</RadzenText>
+            <RadzenText TextStyle="TextStyle.H6" style="margin: 0;">@_accountName</RadzenText>
+        </RadzenStack>
+    </RadzenCard>
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem">
+        <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@Cancel" />
+        <RadzenButton Text="Authorize" Click="@AuthorizeAsync" />
+    </RadzenStack>
+
+</RadzenStack>
+
+@code {
+    private static readonly string[] Adjectives =
+        ["artful", "bold", "calm", "daring", "eager", "fierce", "gentle", "heroic",
+         "jolly", "keen", "lively", "mighty", "noble", "quirky", "serene", "vivid"];
+
+    private static readonly string[] Animals =
+        ["axolotl", "badger", "crane", "dingo", "egret", "falcon", "gecko", "heron",
+         "ibis", "jackal", "kestrel", "lemur", "marmot", "numbat", "otter", "pangolin"];
+
+    private readonly string _accountName = GenerateAccountName();
+
+    private async Task AuthorizeAsync()
+    {
+        await TokenStore.LinkDummyAccountAsync(new DummyAccountToken(_accountName));
+        DialogService.Close(true);
+    }
+
+    private void Cancel() => DialogService.Close(false);
+
+    private static string GenerateAccountName()
+    {
+        var rng = Random.Shared;
+        return $"{Adjectives[rng.Next(Adjectives.Length)]}-{Animals[rng.Next(Animals.Length)]}";
+    }
+}

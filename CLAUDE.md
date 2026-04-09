@@ -31,7 +31,8 @@ The project is in a UI foundation phase. The dashboard shell, component hierarch
 - **Components:** Full dashboard UI — metric cards, tabbed work item and PR lists, animated numbers, theme toggle, header with refresh timestamp.
 - **`DummyProvider`:** A mock `IDataProvider` that returns randomly generated work items and PRs. Used until real providers are wired in.
 - **`RefreshService`:** Tracks the last data refresh time (`LastRefreshed`). Components poll this to display "refreshed X seconds ago" in the header. `Home.razor` auto-refreshes on a 60-second `PeriodicTimer`.
-- **No authentication yet.** OAuth, session cookie storage, and real ADO/GitHub providers are planned (see below) but not implemented.
+- **`SessionTokenStore`:** Scoped service that encrypts/decrypts linked account tokens using ASP.NET Core Data Protection and persists them to `localStorage` via JSInterop. Loads on first render; fires `AccountsChanged` when accounts are mutated. Real ADO/GitHub providers are not yet implemented.
+- **`DummyProvider`:** A mock `IDataProvider` constructed from a `DummyAccountToken`. Tags each work item with the account name as a label and prefixes PR repo names with the account name so data from different instances is visually distinguishable.
 
 ## Data providers
 
@@ -50,27 +51,34 @@ public interface IDataProvider
 Currently `DummyProvider` is the only implementation and is registered as a scoped `IDataProvider` in `Program.cs`.
 
 **Planned real providers:**
-- **Azure DevOps:** `Microsoft.TeamFoundationServer.Client` SDK. Auth via Entra ID OAuth 2.0 (manual flow); MSAL manages token refresh with a custom cache backed by the session cookie. ADO resource scope: `499b84ac-1321-427f-aa17-267ca6975798/.default`. Multiple ADO projects as separate service instances.
-- **GitHub:** GitHub REST/GraphQL API. Auth via GitHub OAuth App (manual flow, `repo` scope). Provider checks token expiry before each call and updates the session cookie with refreshed tokens.
+- **Azure DevOps:** `Microsoft.TeamFoundationServer.Client` SDK. Auth via Entra ID OAuth 2.0 (manual flow); MSAL manages token refresh with a custom cache backed by the encrypted localStorage entry. ADO resource scope: `499b84ac-1321-427f-aa17-267ca6975798/.default`. Multiple ADO projects as separate service instances.
+- **GitHub:** GitHub REST/GraphQL API. Auth via GitHub OAuth App (manual flow, `repo` scope). Provider checks token expiry before each call and updates the localStorage entry with refreshed tokens.
 
-## Planned authentication model
+## Authentication model
 
-There will be no authenticated user. The app will use an **anonymous encrypted session cookie** (via ASP.NET Core Data Protection) to hold all linked provider tokens. No auth middleware (`AddAuthentication`, `AddCookie`, `AddOAuth`) — Data Protection consumed directly through a `SessionTokenStore` service.
+There is no authenticated user. The app stores all linked provider tokens in a single **encrypted localStorage entry** (`nexus.linked-accounts`). No auth middleware — ASP.NET Core Data Protection is consumed directly through `SessionTokenStore`.
 
 ```csharp
 public class LinkedAccounts
 {
+    public List<DummyAccountToken> DummyAccounts { get; set; } = [];
     public List<MicrosoftAccountToken> MicrosoftAccounts { get; set; } = [];
     public List<GitHubAccountToken> GitHubAccounts { get; set; } = [];
 }
 ```
 
-Data Protection keys will be persisted to a file path configured at deployment time (`DataProtection:KeyPath`) so cookies survive restarts.
+`SessionTokenStore` (scoped) owns the in-memory cache and all reads/writes:
+- **`LoadAsync()`** — called once from `OnAfterRenderAsync` (JS interop requires the browser to be connected). Reads `localStorage`, decrypts with `IDataProtector`, and populates the cache. Corrupt/tampered payloads are silently discarded and the store starts fresh.
+- **`GetLinkedAccounts()`** — returns the in-memory cache synchronously (empty if `LoadAsync` hasn't run yet).
+- **`LinkDummyAccountAsync(token)`** — mutates the cache, re-encrypts, writes to localStorage, then fires `AccountsChanged`.
+- **`AccountsChanged`** event — `Home.razor` and `MainLayout.razor` subscribe to re-fetch data and update the header button label respectively.
 
-Both Microsoft and GitHub linking follow the same OAuth pattern:
+Data Protection keys are persisted to a file path configured at deployment time (`DataProtection:KeyPath`) so the encryption key survives restarts and localStorage entries remain readable.
+
+Both Microsoft and GitHub linking will follow the same OAuth pattern:
 1. A Minimal API endpoint builds the authorization URL (with a `state` param for CSRF) and redirects.
 2. A callback endpoint exchanges the code for tokens via `HttpClient`.
-3. Tokens are stored in the encrypted session cookie.
+3. Tokens are encrypted and written to localStorage via `SessionTokenStore`.
 
 Multiple accounts per provider are supported.
 
