@@ -1,0 +1,67 @@
+@inject SessionTokenStore TokenStore
+@inject IDialogService DialogService
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" Style="min-width:320px;padding:0.5rem 0;">
+            @{
+                var accounts = TokenStore.GetLinkedAccounts();
+            }
+            @if (accounts.DummyAccounts.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="opacity:0.6;text-align:center;padding:1rem 0;">
+                    No accounts connected.
+                </MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Connected accounts</MudText>
+                @foreach (var account in accounts.DummyAccounts)
+                {
+                    var name = account.AccountName;
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudIcon Icon="@Icons.Material.Filled.DeveloperBoard" Size="Size.Small" Style="opacity:0.5;" />
+                            <MudText Typo="Typo.body1">@name</MudText>
+                        </MudStack>
+                        <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                       Size="Size.Small"
+                                       Color="Color.Error"
+                                       OnClick="@(() => RemoveAsync(name))" />
+                    </MudStack>
+                }
+            }
+        </MudStack>
+        <MudText Typo="Typo.caption">Account tokens are stored encrypted in your browser's local storage. No data is ever stored on the server or shared.</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@MudDialog.Cancel">Close</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="@AddAccountAsync">
+            Connect account
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private async Task RemoveAsync(string accountName)
+    {
+        await TokenStore.UnlinkDummyAccountAsync(accountName);
+        StateHasChanged();
+    }
+
+    private async Task AddAccountAsync()
+    {
+        MudDialog.Close();
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = true
+        };
+        await DialogService.ShowAsync<LinkDummyAccountDialog>("Connect Dummy Account", options);
+    }
+}

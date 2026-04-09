@@ -54,6 +54,14 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
         AccountsChanged?.Invoke();
     }
 
+    public async Task UnlinkDummyAccountAsync(string accountName)
+    {
+        var accounts = await LoadAsync();
+        accounts.DummyAccounts.RemoveAll(a => a.AccountName == accountName);
+        await PersistAsync(accounts);
+        AccountsChanged?.Invoke();
+    }
+
     private async Task PersistAsync(LinkedAccounts accounts)
     {
         var json = JsonSerializer.Serialize(accounts);

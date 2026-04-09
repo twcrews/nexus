@@ -170,7 +170,7 @@
             CloseOnEscapeKey = true,
             BackdropClick = true
         };
-        await DialogService.ShowAsync<LinkDummyAccountDialog>("Connect Dummy Account", options);
+        await DialogService.ShowAsync<ManageAccountsDialog>("Accounts", options);
     }
 
     private void OnAccountsChanged() => InvokeAsync(StateHasChanged);
