@@ -7,60 +7,41 @@
 
 @if (!_loaded)
 {
-    <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="height:60vh;">
-        <RadzenProgressBarCircular Mode="ProgressBarMode.Indeterminate" Value="100" />
-    </RadzenStack>
+    <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center" Style="height:60vh;">
+        <MudProgressCircular Indeterminate="true" Size="Size.Large" />
+    </MudStack>
 }
 else
 {
-    <div class="rz-p-4">
-        <RadzenRow Gap="1rem" class="rz-mb-5">
-            <RadzenColumn Size="6" SizeMD="3">
-                <MetricCard Count="@_assignedWorkItems.Count()" Label="work items assigned to you" Icon="person" />
-            </RadzenColumn>
-            <RadzenColumn Size="6" SizeMD="3">
-                <MetricCard Count="@_unassignedWorkItems.Count()" Label="unassigned work items" Icon="inbox" />
-            </RadzenColumn>
-            <RadzenColumn Size="6" SizeMD="3">
-                <MetricCard Count="@_assignedPrs.Count()" Label="PRs assigned to you" Icon="rate_review" />
-            </RadzenColumn>
-            <RadzenColumn Size="6" SizeMD="3">
-                <MetricCard Count="@_unassignedPrs.Count()" Label="unassigned PRs" Icon="call_merge" />
-            </RadzenColumn>
-        </RadzenRow>
-        <RadzenRow Gap="1rem">
-            <RadzenColumn Size="12" SizeLG="6">
-                <RadzenCard>
-                    <RadzenText TextStyle="TextStyle.H5" style="margin:0 0 1rem;">Work Items</RadzenText>
-                    <RadzenTabs>
-                        <Tabs>
-                            <RadzenTabsItem Text="@($"Assigned to me ({_assignedWorkItems.Count()})")">
-                                <WorkItemList Items="_assignedWorkItems" ShowAssignee="false" />
-                            </RadzenTabsItem>
-                            <RadzenTabsItem Text="@($"Unassigned ({_unassignedWorkItems.Count()})")">
-                                <WorkItemList Items="_unassignedWorkItems" ShowAssignee="true" />
-                            </RadzenTabsItem>
-                        </Tabs>
-                    </RadzenTabs>
-                </RadzenCard>
-            </RadzenColumn>
-            <RadzenColumn Size="12" SizeLG="6">
-                <RadzenCard>
-                    <RadzenText TextStyle="TextStyle.H5" style="margin:0 0 1rem;">Pull Requests</RadzenText>
-                    <RadzenTabs>
-                        <Tabs>
-                            <RadzenTabsItem Text="@($"Assigned to me ({_assignedPrs.Count()})")">
-                                <PullRequestList Items="_assignedPrs" />
-                            </RadzenTabsItem>
-                            <RadzenTabsItem Text="@($"Unassigned ({_unassignedPrs.Count()})")">
-                                <PullRequestList Items="_unassignedPrs" />
-                            </RadzenTabsItem>
-                        </Tabs>
-                    </RadzenTabs>
-                </RadzenCard>
-            </RadzenColumn>
-
-        </RadzenRow>
+    <div style="padding:16px;">
+        <MudGrid Spacing="4" Style="margin-bottom:24px;">
+            <MudItem xs="6" md="3">
+                <MetricCard Count="@_assignedWorkItems.Count()" Label="work items assigned to you"
+                            Icon="@Icons.Material.Filled.Person" />
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MetricCard Count="@_unassignedWorkItems.Count()" Label="unassigned work items"
+                            Icon="@Icons.Material.Filled.Inbox" />
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MetricCard Count="@_assignedPrs.Count()" Label="PRs assigned to you"
+                            Icon="@Icons.Material.Filled.RateReview" />
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MetricCard Count="@_unassignedPrs.Count()" Label="unassigned PRs"
+                            Icon="@Icons.Material.Filled.CallMerge" />
+            </MudItem>
+        </MudGrid>
+        <MudGrid Spacing="4">
+            <MudItem xs="12" lg="6">
+                <MudText Typo="Typo.h5">Work Items</MudText>
+                <WorkItemList Items="_workItems" ShowAssignee="true" />
+            </MudItem>
+            <MudItem xs="12" lg="6">
+                <MudText Typo="Typo.h5">Pull Requests</MudText>
+                <PullRequestList Items="_pullRequests" />
+            </MudItem>
+        </MudGrid>
     </div>
 }
 
@@ -70,6 +51,9 @@ else
     private IEnumerable<WorkItem> _unassignedWorkItems = [];
     private IEnumerable<PullRequest> _assignedPrs = [];
     private IEnumerable<PullRequest> _unassignedPrs = [];
+
+    private IEnumerable<WorkItem> _workItems => _assignedWorkItems.Concat(_unassignedWorkItems);
+    private IEnumerable<PullRequest> _pullRequests => _assignedPrs.Concat(_unassignedPrs);
 
     private CancellationTokenSource _cts = new();
 
@@ -91,9 +75,9 @@ else
 
     private async Task RefreshAsync()
     {
-        var wi   = DataProvider.GetAssignedWorkItemsAsync();
+        var wi = DataProvider.GetAssignedWorkItemsAsync();
         var unwi = DataProvider.GetUnassignedWorkItemsAsync();
-        var pr   = DataProvider.GetAssignedPullRequestsAsync();
+        var pr = DataProvider.GetAssignedPullRequestsAsync();
         var unpr = DataProvider.GetUnassignedPullRequestsAsync();
 
         _assignedWorkItems   = await wi;

@@ -2,46 +2,137 @@
 @page "/{**path}"
 @inject RefreshService RefreshService
 @inject SessionTokenStore TokenStore
-@inject DialogService DialogService
+@inject IDialogService DialogService
 @implements IDisposable
 
-<RadzenComponents />
+<MudThemeProvider @ref="_mudThemeProvider" Theme="_theme" @bind-IsDarkMode="_isDarkMode" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
 
-<RadzenLayout>
-    <RadzenHeader>
-        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
-                     JustifyContent="JustifyContent.SpaceBetween" Gap="8px" Style="margin-right: 8px;">
-            <div style="height: 50px; padding: 8px;">
-                <Wordmark />
+<CascadingValue Value="_isDarkMode" Name="IsDarkMode">
+    <MudLayout>
+        <MudAppBar Dense Elevation="0" Style="border-bottom: 1px solid var(--mud-palette-divider);">
+            <div style="height: 100%; padding: 8px;">
+                <Wordmark/>
             </div>
-            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="12px">
+            <MudSpacer />
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 @if (RefreshService.LastRefreshed.HasValue)
                 {
-                    <RadzenText TextStyle="TextStyle.Caption" style="opacity: 0.5; white-space: nowrap;">
+                    <MudText Typo="Typo.caption">
                         refreshed @(ElapsedSeconds)s ago
-                    </RadzenText>
+                    </MudText>
                 }
-                <RadzenButton Icon="add_link"
-                              Text="@LinkedAccountsLabel"
-                              ButtonStyle="ButtonStyle.Light"
-                              Size="ButtonSize.Small"
-                              Click="@OpenLinkDialog" />
-                <RadzenAppearanceToggle />
-            </RadzenStack>
-        </RadzenStack>
-    </RadzenHeader>
-    <RadzenBody>
-        <ErrorBoundary>
-            <Home />
-        </ErrorBoundary>
-    </RadzenBody>
-</RadzenLayout>
+                <MudButton StartIcon="@Icons.Material.Filled.AddLink" Variant="Variant.Text" Size="Size.Small"
+                            OnClick="@OpenLinkDialog">
+                    @LinkedAccountsLabel
+                </MudButton>
+                <MudIconButton
+                Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                Size="Size.Small" OnClick="@ToggleDarkMode" />
+            </MudStack>
+        </MudAppBar>
+        <MudMainContent>
+            <ErrorBoundary>
+                <Home />
+            </ErrorBoundary>
+        </MudMainContent>
+    </MudLayout>
+</CascadingValue>
 
 @code {
+    private bool _isDarkMode = true;
     private CancellationTokenSource _cts = new();
+    private MudThemeProvider? _mudThemeProvider;
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            // Brand
+            Primary = "#3A6EF0",
+            PrimaryDarken = "#2853A4",
+            PrimaryLighten = "#3290FE",
+            Secondary = "#1ABFA3",
+            SecondaryDarken = "#128F7A",
+            Tertiary = "#F0883E",
+            // Semantic
+            Success = "#16A34A",
+            Warning = "#D97706",
+            Error = "#DC2626",
+            Info = "#3A6EF0",
+            // Backgrounds
+            Background = "#F8F9FC",
+            Surface = "#FFFFFF",
+            DrawerBackground = "#EEF1F8",
+            AppbarBackground = "#FFFFFF",
+            // Text
+            TextPrimary = "#0F1623",
+            TextSecondary = "#4A5568",
+            TextDisabled = "#9AABBF",
+            // Borders / dividers
+            Divider = "#D1D9E6",
+            DividerLight = "#E0E5F0",
+            TableLines = "#D1D9E6",
+            LinesDefault = "#D1D9E6",
+            LinesInputs = "#A0AEBE",
+            ActionDefault = "#4A5568",
+            AppbarText = "#0F1623",
+        },
+        PaletteDark = new PaletteDark
+        {
+            // Brand
+            Primary = "#3A6EF0",
+            PrimaryDarken = "#2853A4",
+            PrimaryLighten = "#3290FE",
+            Secondary = "#1ABFA3",
+            SecondaryDarken = "#128F7A",
+            Tertiary = "#F0883E",
+            // Semantic
+            Success = "#4ADE80",
+            Warning = "#FBB346",
+            Error = "#F87171",
+            Info = "#6B96F5",
+            // Backgrounds
+            Background = "#0D1117",
+            Surface = "#161B27",
+            DrawerBackground = "#1C2333",
+            AppbarBackground = "#161B27",
+            // Text
+            TextPrimary = "#E8EEFA",
+            TextSecondary = "#8B9EC4",
+            TextDisabled = "#4A5A78",
+            // Borders / dividers
+            Divider = "#2A3550",
+            DividerLight = "#242D3E",
+            TableLines = "#2A3550",
+            LinesDefault = "#2A3550",
+            LinesInputs = "#3D4F6E",
+            ActionDefault = "#8B9EC4",
+            AppbarText = "#E8EEFA",
+        },
+        Typography = new Typography
+        {
+            Default = new DefaultTypography { FontFamily = ["Inter", "sans-serif"], FontWeight = "400" },
+            H1 = new H1Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "700" },
+            H2 = new H2Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "700" },
+            H3 = new H3Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "600" },
+            H4 = new H4Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "600" },
+            H5 = new H5Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "600" },
+            H6 = new H6Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "600" },
+            Subtitle1 = new Subtitle1Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "500" },
+            Subtitle2 = new Subtitle2Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "500" },
+            Body1 = new Body1Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "400" },
+            Body2 = new Body2Typography { FontFamily = ["Inter", "sans-serif"], FontWeight = "400" },
+            Caption = new CaptionTypography { FontFamily = ["Inter", "sans-serif"], FontWeight = "400" },
+            Overline = new OverlineTypography { FontFamily = ["JetBrains Mono", "monospace"], FontWeight = "400" },
+            Button = new ButtonTypography { FontFamily = ["Inter", "sans-serif"], FontWeight = "500" },
+        }
+    };
 
     private int ElapsedSeconds => RefreshService.LastRefreshed.HasValue
-        ? (int)Math.Floor((DateTimeOffset.UtcNow - RefreshService.LastRefreshed.Value).TotalSeconds)
+        ? (int)(DateTimeOffset.UtcNow - RefreshService.LastRefreshed.Value).TotalSeconds
         : 0;
 
     private string LinkedAccountsLabel
@@ -53,16 +144,33 @@
         }
     }
 
+    private void ToggleDarkMode() => _isDarkMode = !_isDarkMode;
+
     protected override void OnInitialized()
     {
         TokenStore.AccountsChanged += OnAccountsChanged;
         _ = RunTickLoopAsync(_cts.Token);
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _isDarkMode = await (_mudThemeProvider?.GetSystemDarkModeAsync() ?? Task.FromResult(_isDarkMode));
+            StateHasChanged();
+        }
+    }
+
     private async Task OpenLinkDialog()
     {
-        await DialogService.OpenAsync<LinkDummyAccountDialog>("Connect Dummy Account",
-            options: new DialogOptions { Width = "400px", CloseDialogOnOverlayClick = true });
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = true
+        };
+        await DialogService.ShowAsync<LinkDummyAccountDialog>("Connect Dummy Account", options);
     }
 
     private void OnAccountsChanged() => InvokeAsync(StateHasChanged);

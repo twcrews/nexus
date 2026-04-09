@@ -1,60 +1,69 @@
-<RadzenDataGrid Data="@_items" TItem="WorkItem" AllowSorting="true"
-                EmptyText="No work items.">
+<MudDataGrid Elevation="0" Class="bordered" T="WorkItem" Items="@_items" SortMode="SortMode.Multiple" Hover="true" Dense="true">
+    <NoRecordsContent>
+        <MudText Typo="Typo.body2" Style="opacity:0.5;padding:1rem;">No work items.</MudText>
+    </NoRecordsContent>
     <Columns>
-        <RadzenDataGridColumn TItem="WorkItem" Property="Type" Title="Type" Width="120px">
-            <Template Context="item">
-                <RadzenBadge Text="@SplitPascal(item.Type)" BadgeStyle="@TypeStyle(item.Type)" />
-            </Template>
-        </RadzenDataGridColumn>
-        <RadzenDataGridColumn TItem="WorkItem" Property="Id" Title="ID" Width="85px">
-            <Template Context="item">
-                <span style="font-size:0.75rem;font-family:'JetBrains Mono',monospace;opacity:0.6;">@item.Id</span>
-            </Template>
-        </RadzenDataGridColumn>
-        <RadzenDataGridColumn TItem="WorkItem" Property="Title" Title="Title">
-            <Template Context="item">
-                <RadzenStack Gap="4px">
-                    <ScrollText>@item.Title</ScrollText>
-                    @if (item.Labels.Count > 0)
+        <TemplateColumn T="WorkItem" Title="Type" SortBy="@(x => x.Type)">
+            <CellTemplate>
+                <MudChip T="string" Text="@SplitPascal(context.Item.Type)"
+                         Color="@TypeColor(context.Item.Type)"
+                         Variant="Variant.Filled" Size="Size.Small" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn T="WorkItem" Title="ID" SortBy="@(x => x.Id)">
+            <CellTemplate>
+                <span style="font-size:0.75rem;font-family:'JetBrains Mono',monospace;opacity:0.6;">
+                    @context.Item.Id
+                </span>
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn T="WorkItem" Title="Title" SortBy="@(x => x.Title)">
+            <CellTemplate>
+                <MudStack Spacing="1">
+                    <ScrollText>@context.Item.Title</ScrollText>
+                    @if (context.Item.Labels.Count > 0)
                     {
-                        <RadzenStack Orientation="Orientation.Horizontal" Gap="4px" Wrap="FlexWrap.Wrap">
-                            @foreach (var label in item.Labels)
+                        <MudStack Row="true" Spacing="1" Style="flex-wrap:wrap;">
+                            @foreach (var label in context.Item.Labels)
                             {
-                                <RadzenBadge Text="@label" BadgeStyle="BadgeStyle.Light"
-                                             style="font-size:0.65rem;" />
+                                <MudChip T="string" Text="@label" Color="Color.Default"
+                                         Variant="Variant.Outlined" Size="Size.Small"
+                                         Style="font-size:0.65rem;height:18px;" />
                             }
-                        </RadzenStack>
+                        </MudStack>
                     }
-                </RadzenStack>
-            </Template>
-        </RadzenDataGridColumn>
+                </MudStack>
+            </CellTemplate>
+        </TemplateColumn>
         @if (ShowAssignee)
         {
-            <RadzenDataGridColumn TItem="WorkItem" Title="Assignee" Width="160px" Sortable="false">
-                <Template Context="item">
-                    @if (item.Assignee is not null)
+            <TemplateColumn T="WorkItem" Title="Assignee" Sortable="false">
+                <CellTemplate>
+                    @if (context.Item.Assignee is not null)
                     {
-                        <UserPill User="item.Assignee" />
+                        <UserPill User="context.Item.Assignee" />
                     }
                     else
                     {
                         <span style="opacity:0.35;">—</span>
                     }
-                </Template>
-            </RadzenDataGridColumn>
+                </CellTemplate>
+            </TemplateColumn>
         }
-        <RadzenDataGridColumn TItem="WorkItem" Property="Status" Title="Status" Width="130px">
-            <Template Context="item">
-                <RadzenBadge Text="@SplitPascal(item.Status)" BadgeStyle="@StatusStyle(item.Status)" />
-            </Template>
-        </RadzenDataGridColumn>
-        <RadzenDataGridColumn TItem="WorkItem" Property="UpdatedAt" Title="Updated" Width="105px">
-            <Template Context="item">
-                <span style="font-size:0.75rem;opacity:0.6;">@Relative(item.UpdatedAt)</span>
-            </Template>
-        </RadzenDataGridColumn>
+        <TemplateColumn T="WorkItem" Title="Status" SortBy="@(x => x.Status)">
+            <CellTemplate>
+                <MudChip T="string" Text="@SplitPascal(context.Item.Status)"
+                         Color="@StatusColor(context.Item.Status)"
+                         Variant="Variant.Filled" Size="Size.Small" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn T="WorkItem" Title="Updated" SortBy="@(x => x.UpdatedAt)">
+            <CellTemplate>
+                <span style="font-size:0.75rem;opacity:0.6;">@Relative(context.Item.UpdatedAt)</span>
+            </CellTemplate>
+        </TemplateColumn>
     </Columns>
-</RadzenDataGrid>
+</MudDataGrid>
 
 @code {
     [Parameter, EditorRequired] public IEnumerable<WorkItem>? Items { get; set; }
@@ -73,24 +82,24 @@
         return sb.ToString();
     }
 
-    private static BadgeStyle TypeStyle(WorkItemType t) => t switch
+    private static Color TypeColor(WorkItemType t) => t switch
     {
-        WorkItemType.Bug       => BadgeStyle.Danger,
-        WorkItemType.Task      => BadgeStyle.Info,
-        WorkItemType.UserStory => BadgeStyle.Primary,
-        WorkItemType.Feature   => BadgeStyle.Success,
-        WorkItemType.Epic      => BadgeStyle.Warning,
-        _                      => BadgeStyle.Secondary,
+        WorkItemType.Bug       => Color.Error,
+        WorkItemType.Task      => Color.Info,
+        WorkItemType.UserStory => Color.Primary,
+        WorkItemType.Feature   => Color.Success,
+        WorkItemType.Epic      => Color.Warning,
+        _                      => Color.Default,
     };
 
-    private static BadgeStyle StatusStyle(WorkItemStatus s) => s switch
+    private static Color StatusColor(WorkItemStatus s) => s switch
     {
-        WorkItemStatus.New                                        => BadgeStyle.Info,
-        WorkItemStatus.Active or WorkItemStatus.InProgress        => BadgeStyle.Primary,
-        WorkItemStatus.Resolved                                   => BadgeStyle.Success,
-        WorkItemStatus.Closed                                     => BadgeStyle.Light,
-        WorkItemStatus.Blocked                                    => BadgeStyle.Danger,
-        _                                                         => BadgeStyle.Secondary,
+        WorkItemStatus.New                                        => Color.Info,
+        WorkItemStatus.Active or WorkItemStatus.InProgress        => Color.Primary,
+        WorkItemStatus.Resolved                                   => Color.Success,
+        WorkItemStatus.Closed                                     => Color.Default,
+        WorkItemStatus.Blocked                                    => Color.Error,
+        _                                                         => Color.Secondary,
     };
 
     private static string Relative(DateTimeOffset dt)

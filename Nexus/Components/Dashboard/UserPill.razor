@@ -1,11 +1,9 @@
-@inject TooltipService TooltipService
-
 @if (!string.IsNullOrEmpty(User.AvatarUrl))
 {
-    <img @ref="_ref" src="@User.AvatarUrl" alt="@User.Name"
-         style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;cursor:default;"
-         @onmouseenter="@(_ => TooltipService.Open(_ref, User.Name, new TooltipOptions { Position = TooltipPosition.Top }))"
-         @onmouseleave="@(_ => TooltipService.Close())" />
+    <MudTooltip Text="@User.Name" Placement="Placement.Top">
+        <img src="@User.AvatarUrl" alt="@User.Name"
+             style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;cursor:default;" />
+    </MudTooltip>
 }
 else
 {
@@ -14,6 +12,4 @@ else
 
 @code {
     [Parameter, EditorRequired] public UserReference User { get; set; } = null!;
-
-    private ElementReference _ref;
 }

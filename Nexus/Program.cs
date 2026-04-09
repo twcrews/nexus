@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.DataProtection;
+using MudBlazor.Services;
 using Nexus.Components;
 using Nexus.Providers;
 using Nexus.Services;
-using Radzen;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,7 +15,7 @@ var keyPath = builder.Configuration["DataProtection:KeyPath"]
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keyPath));
 
-builder.Services.AddRadzenComponents();
+builder.Services.AddMudServices();
 builder.Services.AddScoped<SessionTokenStore>();
 builder.Services.AddScoped<IDataProvider, AggregateDataProvider>();
 builder.Services.AddScoped<RefreshService>();
