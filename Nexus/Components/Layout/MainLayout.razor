@@ -1,8 +1,12 @@
 @page "/"
 @page "/{**path}"
+@using Microsoft.AspNetCore.WebUtilities
+@using System.Text
+@using System.Text.Json
 @inject RefreshService RefreshService
 @inject SessionTokenStore TokenStore
 @inject IDialogService DialogService
+@inject NavigationManager Nav
 @implements IDisposable
 
 <MudThemeProvider @ref="_mudThemeProvider" Theme="_theme" @bind-IsDarkMode="_isDarkMode" />
@@ -139,7 +143,8 @@
     {
         get
         {
-            var count = TokenStore.GetLinkedAccounts().DummyAccounts.Count;
+            var accounts = TokenStore.GetLinkedAccounts();
+            var count = accounts.DummyAccounts.Count + accounts.GitHubAccounts.Count;
             return count == 0 ? "Connect account" : $"{count} account{(count == 1 ? "" : "s")}";
         }
     }
@@ -156,9 +161,38 @@
     {
         if (firstRender)
         {
+            await HandleGitHubCallbackAsync();
             _isDarkMode = await (_mudThemeProvider?.GetSystemDarkModeAsync() ?? Task.FromResult(_isDarkMode));
             StateHasChanged();
         }
+    }
+
+    private async Task HandleGitHubCallbackAsync()
+    {
+        var uri = new Uri(Nav.Uri);
+        if (uri.AbsolutePath.TrimEnd('/') != "/link-github")
+            return;
+
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (query.TryGetValue("token", out var tokenValues) && tokenValues.FirstOrDefault() is string tokenStr && !string.IsNullOrEmpty(tokenStr))
+        {
+            try
+            {
+                var json = Encoding.UTF8.GetString(Convert.FromBase64String(tokenStr));
+                var token = JsonSerializer.Deserialize<GitHubAccountToken>(json);
+                if (token is not null)
+                {
+                    await TokenStore.LoadAsync();
+                    await TokenStore.LinkGitHubAccountAsync(token);
+                }
+            }
+            catch
+            {
+                // Discard malformed token.
+            }
+        }
+
+        Nav.NavigateTo("/", forceLoad: true);
     }
 
     private async Task OpenLinkDialog()

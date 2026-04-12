@@ -62,6 +62,23 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
         AccountsChanged?.Invoke();
     }
 
+    public async Task LinkGitHubAccountAsync(GitHubAccountToken token)
+    {
+        var accounts = await LoadAsync();
+        accounts.GitHubAccounts.RemoveAll(a => a.Login == token.Login);
+        accounts.GitHubAccounts.Add(token);
+        await PersistAsync(accounts);
+        AccountsChanged?.Invoke();
+    }
+
+    public async Task UnlinkGitHubAccountAsync(string login)
+    {
+        var accounts = await LoadAsync();
+        accounts.GitHubAccounts.RemoveAll(a => a.Login == login);
+        await PersistAsync(accounts);
+        AccountsChanged?.Invoke();
+    }
+
     private async Task PersistAsync(LinkedAccounts accounts)
     {
         var json = JsonSerializer.Serialize(accounts);

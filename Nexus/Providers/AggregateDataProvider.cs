@@ -1,9 +1,14 @@
+using Microsoft.Extensions.Options;
 using Nexus.Models;
 using Nexus.Services;
 
 namespace Nexus.Providers;
 
-public class AggregateDataProvider(SessionTokenStore session) : IDataProvider
+public class AggregateDataProvider(
+    SessionTokenStore session,
+    IHttpClientFactory httpFactory,
+    IOptions<GitHubSettings> githubSettings,
+    ILogger<AggregateDataProvider> logger) : IDataProvider
 {
     public Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync() =>
         AggregateAsync(p => p.GetAssignedWorkItemsAsync());
@@ -20,10 +25,14 @@ public class AggregateDataProvider(SessionTokenStore session) : IDataProvider
     private IEnumerable<IDataProvider> BuildProviders()
     {
         var accounts = session.GetLinkedAccounts();
+        var providers = new List<IDataProvider>();
 
-        // Real providers will be constructed here from accounts.MicrosoftAccounts
-        // and accounts.GitHubAccounts once ADO/GitHub providers are implemented.
-        return accounts.DummyAccounts.Select(t => (IDataProvider)new DummyProvider(t));
+        providers.AddRange(accounts.DummyAccounts.Select(t => (IDataProvider)new DummyProvider(t)));
+
+        providers.AddRange(accounts.GitHubAccounts.Select(t =>
+            (IDataProvider)new GitHubProvider(t, httpFactory, githubSettings.Value)));
+
+        return providers;
     }
 
     private async Task<IEnumerable<T>> AggregateAsync<T>(Func<IDataProvider, Task<IEnumerable<T>>> fetch)
@@ -31,7 +40,11 @@ public class AggregateDataProvider(SessionTokenStore session) : IDataProvider
         var tasks = BuildProviders().Select(async p =>
         {
             try { return await fetch(p); }
-            catch { return Enumerable.Empty<T>(); }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Provider {Provider} failed", p.GetType().Name);
+                return Enumerable.Empty<T>();
+            }
         });
         var results = await Task.WhenAll(tasks);
         return results.SelectMany(x => x);

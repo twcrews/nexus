@@ -1,13 +1,15 @@
 @inject SessionTokenStore TokenStore
 @inject IDialogService DialogService
+@inject NavigationManager Nav
 
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="2" Style="min-width:320px;padding:0.5rem 0;">
             @{
                 var accounts = TokenStore.GetLinkedAccounts();
+                var hasAny = accounts.DummyAccounts.Count > 0 || accounts.GitHubAccounts.Count > 0;
             }
-            @if (accounts.DummyAccounts.Count == 0)
+            @if (!hasAny)
             {
                 <MudText Typo="Typo.body2" Style="opacity:0.6;text-align:center;padding:1rem 0;">
                     No accounts connected.
@@ -15,20 +17,41 @@
             }
             else
             {
-                <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Connected accounts</MudText>
-                @foreach (var account in accounts.DummyAccounts)
+                @if (accounts.DummyAccounts.Count > 0)
                 {
-                    var name = account.AccountName;
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                            <MudIcon Icon="@Icons.Material.Filled.DeveloperBoard" Size="Size.Small" Style="opacity:0.5;" />
-                            <MudText Typo="Typo.body1">@name</MudText>
+                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Connected accounts</MudText>
+                    @foreach (var account in accounts.DummyAccounts)
+                    {
+                        var name = account.AccountName;
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                <MudIcon Icon="@Icons.Material.Filled.DeveloperBoard" Size="Size.Small" Style="opacity:0.5;" />
+                                <MudText Typo="Typo.body1">@name</MudText>
+                            </MudStack>
+                            <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                           Size="Size.Small"
+                                           Color="Color.Error"
+                                           OnClick="@(() => RemoveDummyAsync(name))" />
                         </MudStack>
-                        <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
-                                       Size="Size.Small"
-                                       Color="Color.Error"
-                                       OnClick="@(() => RemoveAsync(name))" />
-                    </MudStack>
+                    }
+                }
+                @if (accounts.GitHubAccounts.Count > 0)
+                {
+                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">GitHub accounts</MudText>
+                    @foreach (var account in accounts.GitHubAccounts)
+                    {
+                        var login = account.Login;
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                <MudIcon Icon="@Icons.Custom.Brands.GitHub" Size="Size.Small" Style="opacity:0.5;" />
+                                <MudText Typo="Typo.body1">@account.DisplayName (@login)</MudText>
+                            </MudStack>
+                            <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                           Size="Size.Small"
+                                           Color="Color.Error"
+                                           OnClick="@(() => RemoveGitHubAsync(login))" />
+                        </MudStack>
+                    }
                 }
             }
         </MudStack>
@@ -36,23 +59,30 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="@MudDialog.Cancel">Close</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-                   OnClick="@AddAccountAsync">
-            Connect account
-        </MudButton>
+        <MudMenu Label="Connect account" Variant="Variant.Filled" Color="Color.Primary"
+                 StartIcon="@Icons.Material.Filled.Add" EndIcon="@Icons.Material.Filled.ArrowDropDown">
+            <MudMenuItem OnClick="@AddDummyAccountAsync">Dummy account</MudMenuItem>
+            <MudMenuItem OnClick="@ConnectGitHub">GitHub</MudMenuItem>
+        </MudMenu>
     </DialogActions>
 </MudDialog>
 
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
 
-    private async Task RemoveAsync(string accountName)
+    private async Task RemoveDummyAsync(string accountName)
     {
         await TokenStore.UnlinkDummyAccountAsync(accountName);
         StateHasChanged();
     }
 
-    private async Task AddAccountAsync()
+    private async Task RemoveGitHubAsync(string login)
+    {
+        await TokenStore.UnlinkGitHubAccountAsync(login);
+        StateHasChanged();
+    }
+
+    private async Task AddDummyAccountAsync()
     {
         MudDialog.Close();
         var options = new DialogOptions
@@ -63,5 +93,11 @@
             BackdropClick = true
         };
         await DialogService.ShowAsync<LinkDummyAccountDialog>("Connect Dummy Account", options);
+    }
+
+    private void ConnectGitHub()
+    {
+        MudDialog.Close();
+        Nav.NavigateTo("/auth/github", forceLoad: true);
     }
 }

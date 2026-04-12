@@ -1,0 +1,46 @@
+@page "/link-github"
+@using System.Text
+@using System.Text.Json
+@inject SessionTokenStore TokenStore
+@inject NavigationManager Nav
+
+@if (_error is not null)
+{
+    <MudText Color="Color.Error">@_error</MudText>
+}
+else
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "token")]
+    public string? Token { get; set; }
+
+    private string? _error;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        if (string.IsNullOrWhiteSpace(Token))
+        {
+            _error = "No token received.";
+            StateHasChanged();
+            return;
+        }
+        try
+        {
+            var json = Encoding.UTF8.GetString(Convert.FromBase64String(Token));
+            var token = JsonSerializer.Deserialize<GitHubAccountToken>(json);
+            if (token is null) throw new InvalidOperationException("Deserialization returned null.");
+            await TokenStore.LoadAsync();
+            await TokenStore.LinkGitHubAccountAsync(token);
+            Nav.NavigateTo("/", forceLoad: false);
+        }
+        catch
+        {
+            _error = "Failed to link GitHub account.";
+            StateHasChanged();
+        }
+    }
+}

@@ -22,4 +22,6 @@ public class GitHubAccountToken
     public DateTimeOffset ExpiresAt { get; set; }
     public string? RefreshToken { get; set; }
     public DateTimeOffset? RefreshTokenExpiresAt { get; set; }
+    public string Login { get; set; } = "";
+    public string DisplayName { get; set; } = "";
 }
