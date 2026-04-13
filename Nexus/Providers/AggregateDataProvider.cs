@@ -8,7 +8,8 @@ public class AggregateDataProvider(
     SessionTokenStore session,
     IHttpClientFactory httpFactory,
     IOptions<GitHubSettings> githubSettings,
-    ILogger<AggregateDataProvider> logger) : IDataProvider
+    ILogger<AggregateDataProvider> logger,
+    ILoggerFactory loggerFactory) : IDataProvider
 {
     public Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync() =>
         AggregateAsync(p => p.GetAssignedWorkItemsAsync());
@@ -30,7 +31,8 @@ public class AggregateDataProvider(
         providers.AddRange(accounts.DummyAccounts.Select(t => (IDataProvider)new DummyProvider(t)));
 
         providers.AddRange(accounts.GitHubAccounts.Select(t =>
-            (IDataProvider)new GitHubProvider(t, httpFactory, githubSettings.Value)));
+            (IDataProvider)new GitHubProvider(t, httpFactory, githubSettings.Value,
+                loggerFactory.CreateLogger<GitHubProvider>())));
 
         return providers;
     }

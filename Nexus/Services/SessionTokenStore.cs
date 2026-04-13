@@ -79,6 +79,16 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
         AccountsChanged?.Invoke();
     }
 
+    public async Task UpdateGitHubMonitoredReposAsync(string login, List<string> repos)
+    {
+        var accounts = await LoadAsync();
+        var account = accounts.GitHubAccounts.FirstOrDefault(a => a.Login == login);
+        if (account is null) return;
+        account.MonitoredRepos = repos;
+        await PersistAsync(accounts);
+        AccountsChanged?.Invoke();
+    }
+
     private async Task PersistAsync(LinkedAccounts accounts)
     {
         var json = JsonSerializer.Serialize(accounts);

@@ -173,6 +173,7 @@
         if (uri.AbsolutePath.TrimEnd('/') != "/link-github")
             return;
 
+        GitHubAccountToken? linkedToken = null;
         var query = QueryHelpers.ParseQuery(uri.Query);
         if (query.TryGetValue("token", out var tokenValues) && tokenValues.FirstOrDefault() is string tokenStr && !string.IsNullOrEmpty(tokenStr))
         {
@@ -184,6 +185,7 @@
                 {
                     await TokenStore.LoadAsync();
                     await TokenStore.LinkGitHubAccountAsync(token);
+                    linkedToken = token;
                 }
             }
             catch
@@ -192,7 +194,29 @@
             }
         }
 
-        Nav.NavigateTo("/", forceLoad: true);
+        // Navigate without a full reload so the component tree (and dialog infrastructure) stays alive.
+        Nav.NavigateTo("/", forceLoad: false);
+
+        if (linkedToken is not null)
+        {
+            await OpenSelectReposDialogAsync(linkedToken);
+        }
+    }
+
+    private async Task OpenSelectReposDialogAsync(GitHubAccountToken token)
+    {
+        var parameters = new DialogParameters<SelectGitHubReposDialog>
+        {
+            { x => x.Token, token }
+        };
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseOnEscapeKey = false,
+            BackdropClick = false
+        };
+        await DialogService.ShowAsync<SelectGitHubReposDialog>("Select Repositories", parameters, options);
     }
 
     private async Task OpenLinkDialog()

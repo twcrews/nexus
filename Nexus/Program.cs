@@ -68,7 +68,7 @@ app.MapGet("/auth/github", (IOptions<GitHubSettings> opts, HttpContext ctx) =>
     });
     var url = "https://github.com/login/oauth/authorize" +
               $"?client_id={Uri.EscapeDataString(opts.Value.ClientId)}" +
-              $"&scope=repo+read:user&state={Uri.EscapeDataString(state)}" +
+              $"&scope=repo+read:user+read:org&state={Uri.EscapeDataString(state)}" +
               "&prompt=select_account";
     return Results.Redirect(url);
 });

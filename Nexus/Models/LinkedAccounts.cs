@@ -24,4 +24,8 @@ public class GitHubAccountToken
     public DateTimeOffset? RefreshTokenExpiresAt { get; set; }
     public string Login { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    /// <summary>
+    /// Repositories to monitor in owner/repo format. Empty list means monitor all (default scope).
+    /// </summary>
+    public List<string> MonitoredRepos { get; set; } = [];
 }

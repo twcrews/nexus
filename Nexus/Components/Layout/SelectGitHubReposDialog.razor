@@ -1,0 +1,259 @@
+@inject SessionTokenStore TokenStore
+@inject IHttpClientFactory HttpFactory
+
+<MudDialog Style="max-height:80vh;">
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width:480px;padding:0.5rem 0;">
+            @if (_loading)
+            {
+                <MudStack AlignItems="AlignItems.Center" Style="padding:2rem 0;">
+                    <MudProgressCircular Indeterminate="true" />
+                    <MudText Typo="Typo.body2" Style="opacity:0.6;">Loading repositories…</MudText>
+                </MudStack>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Style="opacity:0.6;">
+                    Choose which repositories Nexus will monitor for
+                    <strong>@Token.DisplayName</strong>. Leave all unchecked to monitor everything.
+                </MudText>
+
+                @* User's own repos *@
+                @if (_userRepos.Count > 0)
+                {
+                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Your repositories</MudText>
+                    <MudPaper Outlined="true" Style="max-height:200px;overflow-y:auto;">
+                        <MudList T="string" Dense="true">
+                            @foreach (var repo in _userRepos)
+                            {
+                                var fullName = repo.FullName;
+                                var disabledElsewhere = _monitoredElsewhere.TryGetValue(fullName, out var otherLogin);
+                                <MudListItem T="string" Dense="true">
+                                    <MudTooltip Text="@(disabledElsewhere ? $"Already monitored by @{otherLogin}" : "")"
+                                                Disabled="@(!disabledElsewhere)">
+                                        <MudCheckBox T="bool"
+                                                     Value="@(_selected.Contains(fullName))"
+                                                     ValueChanged="@(v => ToggleRepo(fullName, v))"
+                                                     Disabled="@disabledElsewhere"
+                                                     Dense="true"
+                                                     Label="@fullName" />
+                                    </MudTooltip>
+                                </MudListItem>
+                            }
+                        </MudList>
+                    </MudPaper>
+                }
+
+                @* Org repos *@
+                @foreach (var (org, repos) in _orgRepos)
+                {
+                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">@org</MudText>
+                    <MudPaper Outlined="true" Style="max-height:200px;overflow-y:auto;">
+                        <MudList T="string" Dense="true">
+                            @foreach (var repo in repos)
+                            {
+                                var fullName = repo.FullName;
+                                var disabledElsewhere = _monitoredElsewhere.TryGetValue(fullName, out var otherLogin);
+                                <MudListItem T="string" Dense="true">
+                                    <MudTooltip Text="@(disabledElsewhere ? $"Already monitored by @{otherLogin}" : "")"
+                                                Disabled="@(!disabledElsewhere)">
+                                        <MudCheckBox T="bool"
+                                                     Value="@(_selected.Contains(fullName))"
+                                                     ValueChanged="@(v => ToggleRepo(fullName, v))"
+                                                     Disabled="@disabledElsewhere"
+                                                     Dense="true"
+                                                     Label="@fullName" />
+                                    </MudTooltip>
+                                </MudListItem>
+                            }
+                        </MudList>
+                    </MudPaper>
+                }
+
+                @* Live search *@
+                <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Search any public repository</MudText>
+                <MudAutocomplete T="string"
+                                 Placeholder="owner/repo"
+                                 SearchFunc="@SearchReposAsync"
+                                 ValueChanged="@AddSearchResult"
+                                 ResetValueOnEmptyText="true"
+                                 CoerceText="false"
+                                 Immediate="true"
+                                 DebounceInterval="300"
+                                 AdornmentIcon="@Icons.Material.Filled.Search"
+                                 Adornment="Adornment.Start"
+                                 Variant="Variant.Outlined"
+                                 Dense="true" />
+
+                @* Selected repos summary *@
+                @if (_selected.Count > 0)
+                {
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">
+                            Monitoring @_selected.Count @(_selected.Count == 1 ? "repository" : "repositories")
+                        </MudText>
+                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                            @foreach (var repo in _selected.OrderBy(r => r))
+                            {
+                                var r = repo;
+                                <MudChip T="string" Size="Size.Small" OnClose="@(() => ToggleRepo(r, false))" CloseIcon="@Icons.Material.Filled.Close">
+                                    @r
+                                </MudChip>
+                            }
+                        </MudStack>
+                    </MudStack>
+                }
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@Cancel">Skip</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@SaveAsync" Disabled="@_loading">
+            Save
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public GitHubAccountToken Token { get; set; } = default!;
+
+    private bool _loading = true;
+    private List<GitHubRepoDto> _userRepos = [];
+    private Dictionary<string, List<GitHubRepoDto>> _orgRepos = [];
+    private HashSet<string> _selected = [];
+
+    // Maps repo full name → login of the other account monitoring it.
+    private Dictionary<string, string> _monitoredElsewhere = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selected = [..Token.MonitoredRepos];
+        _monitoredElsewhere = BuildMonitoredElsewhere();
+
+        var client = CreateClient();
+        try
+        {
+            var userReposTask = FetchUserReposAsync(client);
+            var orgsTask = FetchOrgsAsync(client);
+            await Task.WhenAll(userReposTask, orgsTask);
+            _userRepos = await userReposTask;
+
+            var orgRepos = new Dictionary<string, List<GitHubRepoDto>>();
+            var orgs = await orgsTask;
+            var orgTasks = orgs.Select(async org =>
+            {
+                var repos = await FetchOrgReposAsync(client, org.Login);
+                return (org.Login, repos);
+            });
+            foreach (var (orgLogin, repos) in await Task.WhenAll(orgTasks))
+                orgRepos[orgLogin] = repos;
+            _orgRepos = orgRepos;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private HttpClient CreateClient()
+    {
+        var client = HttpFactory.CreateClient("GitHub");
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Token.AccessToken);
+        return client;
+    }
+
+    private Dictionary<string, string> BuildMonitoredElsewhere()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var allAccounts = TokenStore.GetLinkedAccounts();
+        foreach (var account in allAccounts.GitHubAccounts.Where(a => a.Login != Token.Login))
+            foreach (var repo in account.MonitoredRepos)
+                result.TryAdd(repo, account.Login);
+        return result;
+    }
+
+    private void ToggleRepo(string fullName, bool selected)
+    {
+        if (selected) _selected.Add(fullName);
+        else _selected.Remove(fullName);
+    }
+
+    private void AddSearchResult(string? fullName)
+    {
+        if (string.IsNullOrWhiteSpace(fullName)) return;
+        if (!_monitoredElsewhere.ContainsKey(fullName))
+            _selected.Add(fullName);
+    }
+
+    private async Task SaveAsync()
+    {
+        await TokenStore.UpdateGitHubMonitoredReposAsync(Token.Login, [.._selected]);
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    // --- GitHub API calls ---
+
+    private static readonly System.Text.Json.JsonSerializerOptions _jsonOpts = System.Text.Json.JsonSerializerOptions.Web;
+
+    private async Task<List<GitHubRepoDto>> FetchUserReposAsync(HttpClient client)
+    {
+        try
+        {
+            return await client.GetFromJsonAsync<List<GitHubRepoDto>>(
+                "user/repos?per_page=100&sort=updated&affiliation=owner", _jsonOpts)
+                ?? [];
+        }
+        catch { return []; }
+    }
+
+    private async Task<List<GitHubOrgDto>> FetchOrgsAsync(HttpClient client)
+    {
+        try
+        {
+            return await client.GetFromJsonAsync<List<GitHubOrgDto>>("user/orgs?per_page=100", _jsonOpts) ?? [];
+        }
+        catch { return []; }
+    }
+
+    private async Task<List<GitHubRepoDto>> FetchOrgReposAsync(HttpClient client, string org)
+    {
+        try
+        {
+            return await client.GetFromJsonAsync<List<GitHubRepoDto>>(
+                $"orgs/{Uri.EscapeDataString(org)}/repos?per_page=100&sort=updated", _jsonOpts)
+                ?? [];
+        }
+        catch { return []; }
+    }
+
+    private async Task<IEnumerable<string>> SearchReposAsync(string text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text.Length < 2) return [];
+        try
+        {
+            var url = $"search/repositories?q={Uri.EscapeDataString(text)}+fork:false&per_page=10";
+            var result = await CreateClient().GetFromJsonAsync<GitHubRepoSearchDto>(url, _jsonOpts, ct);
+            return result?.Items.Select(r => r.FullName) ?? [];
+        }
+        catch { return []; }
+    }
+
+    // --- JSON models (used only in this dialog) ---
+
+    private record GitHubRepoDto(
+        [property: System.Text.Json.Serialization.JsonPropertyName("full_name")] string FullName,
+        [property: System.Text.Json.Serialization.JsonPropertyName("description")] string? Description,
+        [property: System.Text.Json.Serialization.JsonPropertyName("private")] bool Private);
+
+    private record GitHubOrgDto(
+        [property: System.Text.Json.Serialization.JsonPropertyName("login")] string Login);
+
+    private record GitHubRepoSearchDto(
+        [property: System.Text.Json.Serialization.JsonPropertyName("total_count")] int TotalCount,
+        [property: System.Text.Json.Serialization.JsonPropertyName("items")] List<GitHubRepoDto> Items);
+}

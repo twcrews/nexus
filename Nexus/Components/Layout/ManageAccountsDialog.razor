@@ -41,15 +41,28 @@
                     @foreach (var account in accounts.GitHubAccounts)
                     {
                         var login = account.Login;
+                        var repoCount = account.MonitoredRepos.Count;
                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                 <MudIcon Icon="@Icons.Custom.Brands.GitHub" Size="Size.Small" Style="opacity:0.5;" />
-                                <MudText Typo="Typo.body1">@account.DisplayName (@login)</MudText>
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.body1">@account.DisplayName (@login)</MudText>
+                                    <MudText Typo="Typo.caption" Style="opacity:0.5;">
+                                        @(repoCount == 0 ? "All repositories" : $"{repoCount} {(repoCount == 1 ? "repository" : "repositories")}")
+                                    </MudText>
+                                </MudStack>
                             </MudStack>
-                            <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
-                                           Size="Size.Small"
-                                           Color="Color.Error"
-                                           OnClick="@(() => RemoveGitHubAsync(login))" />
+                            <MudStack Row="true" Spacing="0">
+                                <MudTooltip Text="Configure repositories">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Settings"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => ConfigureReposAsync(account))" />
+                                </MudTooltip>
+                                <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                               Size="Size.Small"
+                                               Color="Color.Error"
+                                               OnClick="@(() => RemoveGitHubAsync(login))" />
+                            </MudStack>
                         </MudStack>
                     }
                 }
@@ -99,5 +112,21 @@
     {
         MudDialog.Close();
         Nav.NavigateTo("/auth/github", forceLoad: true);
+    }
+
+    private async Task ConfigureReposAsync(GitHubAccountToken account)
+    {
+        var parameters = new DialogParameters<SelectGitHubReposDialog>
+        {
+            { x => x.Token, account }
+        };
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = false
+        };
+        await DialogService.ShowAsync<SelectGitHubReposDialog>("Configure Repositories", parameters, options);
     }
 }

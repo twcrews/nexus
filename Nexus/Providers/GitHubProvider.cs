@@ -10,7 +10,8 @@ namespace Nexus.Providers;
 public class GitHubProvider(
     GitHubAccountToken token,
     IHttpClientFactory httpFactory,
-    GitHubSettings settings) : IDataProvider
+    GitHubSettings settings,
+    ILogger<GitHubProvider> logger) : IDataProvider
 {
     private HttpClient CreateClient()
     {
@@ -24,11 +25,16 @@ public class GitHubProvider(
         ? $"user:{token.Login}"
         : $"org:{settings.Organization}";
 
+    private string RepoFilter => token.MonitoredRepos.Count > 0
+        ? string.Join(" ", token.MonitoredRepos.Select(r => $"repo:{r}"))
+        : Scope;
+
     public async Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync()
     {
         var client = CreateClient();
+        var repoClause = token.MonitoredRepos.Count > 0 ? $" {RepoFilter}" : "";
         var items = await FetchAllSearchResultsAsync(client,
-            $"is:issue is:open assignee:{token.Login}");
+            $"is:issue is:open assignee:{token.Login}{repoClause}");
         return items.Select(MapIssueToWorkItem);
     }
 
@@ -36,15 +42,16 @@ public class GitHubProvider(
     {
         var client = CreateClient();
         var items = await FetchAllSearchResultsAsync(client,
-            $"is:issue is:open no:assignee {Scope}");
+            $"is:issue is:open no:assignee {RepoFilter}");
         return items.Select(MapIssueToWorkItem);
     }
 
     public async Task<IEnumerable<PullRequest>> GetAssignedPullRequestsAsync()
     {
         var client = CreateClient();
-        var assigned = FetchAllSearchResultsAsync(client, $"is:pr is:open assignee:{token.Login}");
-        var reviewRequested = FetchAllSearchResultsAsync(client, $"is:pr is:open review-requested:{token.Login}");
+        var repoClause = token.MonitoredRepos.Count > 0 ? $" {RepoFilter}" : "";
+        var assigned = FetchAllSearchResultsAsync(client, $"is:pr is:open assignee:{token.Login}{repoClause}");
+        var reviewRequested = FetchAllSearchResultsAsync(client, $"is:pr is:open review-requested:{token.Login}{repoClause}");
         var items = (await assigned).Concat(await reviewRequested)
             .DistinctBy(i => i.Number)
             .ToList();
@@ -55,7 +62,7 @@ public class GitHubProvider(
     {
         var client = CreateClient();
         var items = await FetchAllSearchResultsAsync(client,
-            $"is:pr is:open no:assignee draft:false {Scope}");
+            $"is:pr is:open no:assignee draft:false {RepoFilter}");
         return await MapSearchItemsToPullRequestsAsync(client, items);
     }
 
@@ -80,7 +87,13 @@ public class GitHubProvider(
     {
         var response = await client.GetAsync(url);
         if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            logger.LogWarning(
+                "GitHub API returned {StatusCode} for {Login} on {Url}: {Body}",
+                (int)response.StatusCode, token.Login, url, body);
             return null;
+        }
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync();
