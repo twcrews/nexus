@@ -1,5 +1,6 @@
 @inject SessionTokenStore TokenStore
 @inject IHttpClientFactory HttpFactory
+@inject ISnackbar Snackbar
 
 <MudDialog Style="max-height:80vh;">
     <DialogContent>
@@ -184,8 +185,12 @@
     private void AddSearchResult(string? fullName)
     {
         if (string.IsNullOrWhiteSpace(fullName)) return;
-        if (!_monitoredElsewhere.ContainsKey(fullName))
-            _selected.Add(fullName);
+        if (_monitoredElsewhere.TryGetValue(fullName, out var otherLogin))
+        {
+            Snackbar.Add($"{fullName} is already monitored by @{otherLogin}", Severity.Warning);
+            return;
+        }
+        _selected.Add(fullName);
     }
 
     private async Task SaveAsync()

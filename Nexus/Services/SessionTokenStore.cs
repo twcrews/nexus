@@ -48,7 +48,7 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
 
     public async Task LinkDummyAccountAsync(DummyAccountToken token)
     {
-        var accounts = await LoadAsync();
+        LinkedAccounts accounts = await LoadAsync();
         accounts.DummyAccounts.Add(token);
         await PersistAsync(accounts);
         AccountsChanged?.Invoke();
@@ -56,7 +56,7 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
 
     public async Task UnlinkDummyAccountAsync(string accountName)
     {
-        var accounts = await LoadAsync();
+        LinkedAccounts accounts = await LoadAsync();
         accounts.DummyAccounts.RemoveAll(a => a.AccountName == accountName);
         await PersistAsync(accounts);
         AccountsChanged?.Invoke();
@@ -64,7 +64,7 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
 
     public async Task LinkGitHubAccountAsync(GitHubAccountToken token)
     {
-        var accounts = await LoadAsync();
+        LinkedAccounts accounts = await LoadAsync();
         accounts.GitHubAccounts.RemoveAll(a => a.Login == token.Login);
         accounts.GitHubAccounts.Add(token);
         await PersistAsync(accounts);
@@ -73,7 +73,7 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
 
     public async Task UnlinkGitHubAccountAsync(string login)
     {
-        var accounts = await LoadAsync();
+        LinkedAccounts accounts = await LoadAsync();
         accounts.GitHubAccounts.RemoveAll(a => a.Login == login);
         await PersistAsync(accounts);
         AccountsChanged?.Invoke();
@@ -81,9 +81,10 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
 
     public async Task UpdateGitHubMonitoredReposAsync(string login, List<string> repos)
     {
-        var accounts = await LoadAsync();
-        var account = accounts.GitHubAccounts.FirstOrDefault(a => a.Login == login);
+        LinkedAccounts accounts = await LoadAsync();
+        GitHubAccountToken? account = accounts.GitHubAccounts.FirstOrDefault(a => a.Login == login);
         if (account is null) return;
+        if (account.MonitoredRepos.Order().SequenceEqual(repos.Order())) return;
         account.MonitoredRepos = repos;
         await PersistAsync(accounts);
         AccountsChanged?.Invoke();

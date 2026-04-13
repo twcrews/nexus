@@ -11,7 +11,7 @@ using Nexus.Models;
 using Nexus.Providers;
 using Nexus.Services;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -42,7 +42,7 @@ builder.Services.AddHttpClient("GitHubOAuth", client =>
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 });
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -85,9 +85,9 @@ app.MapGet("/auth/github/callback", async (
     if (savedState != state)
         return Results.BadRequest("State mismatch.");
 
-    var settings = opts.Value;
-    var oauthClient = httpFactory.CreateClient("GitHubOAuth");
-    var tokenResp = await oauthClient.PostAsync("login/oauth/access_token",
+    GitHubSettings settings = opts.Value;
+    HttpClient oauthClient = httpFactory.CreateClient("GitHubOAuth");
+    HttpResponseMessage tokenResp = await oauthClient.PostAsync("login/oauth/access_token",
         JsonContent.Create(new
         {
             client_id = settings.ClientId,
@@ -96,14 +96,14 @@ app.MapGet("/auth/github/callback", async (
         }));
     tokenResp.EnsureSuccessStatusCode();
 
-    var tokenJson = await tokenResp.Content.ReadFromJsonAsync<GitHubTokenResponse>();
+    GitHubTokenResponse? tokenJson = await tokenResp.Content.ReadFromJsonAsync<GitHubTokenResponse>();
     if (tokenJson?.AccessToken is null)
         return Results.BadRequest("Token exchange failed.");
 
-    var apiClient = httpFactory.CreateClient("GitHub");
+    HttpClient apiClient = httpFactory.CreateClient("GitHub");
     apiClient.DefaultRequestHeaders.Authorization =
         new AuthenticationHeaderValue("Bearer", tokenJson.AccessToken);
-    var userJson = await apiClient.GetFromJsonAsync<GitHubUserResponse>("user");
+    GitHubUserResponse? userJson = await apiClient.GetFromJsonAsync<GitHubUserResponse>("user");
     if (userJson is null)
         return Results.Problem("Failed to fetch GitHub user profile.");
 

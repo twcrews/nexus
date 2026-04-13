@@ -56,7 +56,7 @@ public class DummyProvider(DummyAccountToken token) : IDataProvider
     public Task<DashboardData> GetDashboardDataAsync()
     {
         var rng = new Random();
-        var now = DateTimeOffset.UtcNow;
+        DateTimeOffset now = DateTimeOffset.UtcNow;
         return Task.FromResult(new DashboardData(
             AssignedWorkItems: GenerateWorkItems(rng, Users, now, count: 8, assignedTo: AccountUser),
             UnassignedWorkItems: GenerateWorkItems(rng, Users, now, count: 7, assignedTo: null),
@@ -140,7 +140,7 @@ file static class RandomExtensions
 {
     public static T NextEnum<T>(this Random rng) where T : struct, Enum
     {
-        var values = Enum.GetValues<T>();
+        T[] values = Enum.GetValues<T>();
         return values[rng.Next(values.Length)];
     }
 }

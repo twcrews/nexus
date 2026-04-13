@@ -15,7 +15,7 @@ public class GitHubProvider(
 {
     private HttpClient CreateClient()
     {
-        var client = httpFactory.CreateClient("GitHub");
+        HttpClient client = httpFactory.CreateClient("GitHub");
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", token.AccessToken);
         return client;
@@ -26,7 +26,7 @@ public class GitHubProvider(
         if (token.MonitoredRepos.Count == 0)
             return new DashboardData([], [], [], []);
 
-        var cache = await FetchGqlCacheAsync();
+        GqlCache cache = await FetchGqlCacheAsync();
         return new DashboardData(
             AssignedWorkItems: cache.Issues
                 .Where(x => x.AssigneeLogin == token.Login)
@@ -45,13 +45,16 @@ public class GitHubProvider(
 
     private async Task<GqlCache> FetchGqlCacheAsync()
     {
-        var client = CreateClient();
+        HttpClient client = CreateClient();
         var query = BuildQuery();
         var payload = JsonSerializer.Serialize(
             new GqlRequest(query), GitHubJsonContext.Default.GqlRequest);
 
         using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-        var response = await client.PostAsync("graphql", content);
+
+        Console.WriteLine($"\x1b[33m[GitHub] GraphQL request → {token.Login} ({token.MonitoredRepos.Count} repos)\x1b[0m");
+
+        HttpResponseMessage response = await client.PostAsync("graphql", content);
 
         if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
         {
@@ -64,11 +67,11 @@ public class GitHubProvider(
 
         response.EnsureSuccessStatusCode();
 
-        var result = await response.Content.ReadFromJsonAsync(GitHubJsonContext.Default.GqlResponse);
+        GqlResponse? result = await response.Content.ReadFromJsonAsync(GitHubJsonContext.Default.GqlResponse);
 
         if (result?.Errors is { Count: > 0 })
         {
-            foreach (var err in result.Errors)
+            foreach (GqlError err in result.Errors)
                 logger.LogWarning("GitHub GraphQL error for {Login}: {Message}", token.Login, err.Message);
         }
 
@@ -121,20 +124,20 @@ public class GitHubProvider(
         if (result?.Data is not { } dataEl)
             return new GqlCache(issues, prs);
 
-        foreach (var repoProp in dataEl.EnumerateObject())
+        foreach (JsonProperty repoProp in dataEl.EnumerateObject())
         {
-            var repoEl = repoProp.Value;
+            JsonElement repoEl = repoProp.Value;
 
-            if (repoEl.TryGetProperty("issues", out var issuesEl))
+            if (repoEl.TryGetProperty("issues", out JsonElement issuesEl))
             {
-                var conn = issuesEl.Deserialize(GitHubJsonContext.Default.GqlIssueConnection);
+                GqlIssueConnection? conn = issuesEl.Deserialize(GitHubJsonContext.Default.GqlIssueConnection);
                 if (conn is not null)
                     issues.AddRange(conn.Nodes.Select(MapIssue));
             }
 
-            if (repoEl.TryGetProperty("pullRequests", out var prsEl))
+            if (repoEl.TryGetProperty("pullRequests", out JsonElement prsEl))
             {
-                var conn = prsEl.Deserialize(GitHubJsonContext.Default.GqlPrConnection);
+                GqlPrConnection? conn = prsEl.Deserialize(GitHubJsonContext.Default.GqlPrConnection);
                 if (conn is not null)
                     prs.AddRange(conn.Nodes.Select(MapPr));
             }
@@ -145,12 +148,12 @@ public class GitHubProvider(
 
     private static MappedIssue MapIssue(GqlIssue node)
     {
-        var author = node.Author is { } a
+        UserReference author = node.Author is { } a
             ? new UserReference(a.Name ?? a.Login, a.AvatarUrl)
             : new UserReference("unknown", null);
 
-        var firstAssignee = node.Assignees.Nodes.FirstOrDefault();
-        var assigneeRef = firstAssignee is null
+        GqlUser? firstAssignee = node.Assignees.Nodes.FirstOrDefault();
+        UserReference? assigneeRef = firstAssignee is null
             ? null
             : new UserReference(firstAssignee.Name ?? firstAssignee.Login, firstAssignee.AvatarUrl);
 
@@ -172,7 +175,7 @@ public class GitHubProvider(
 
     private static MappedPr MapPr(GqlPr node)
     {
-        var author = node.Author is { } a
+        UserReference author = node.Author is { } a
             ? new UserReference(a.Name ?? a.Login, a.AvatarUrl)
             : new UserReference("unknown", null);
 

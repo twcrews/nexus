@@ -11,8 +11,8 @@ public class AggregateDataProvider(
 {
     public async Task<DashboardData> GetDashboardDataAsync()
     {
-        var providers = BuildProviders();
-        var results = await Task.WhenAll(providers.Select(async p =>
+        List<IDataProvider> providers = BuildProviders();
+        DashboardData[] results = await Task.WhenAll(providers.Select(async p =>
         {
             try { return await p.GetDashboardDataAsync(); }
             catch (Exception ex)
@@ -30,9 +30,9 @@ public class AggregateDataProvider(
         );
     }
 
-    private IEnumerable<IDataProvider> BuildProviders()
+    private List<IDataProvider> BuildProviders()
     {
-        var accounts = session.GetLinkedAccounts();
+        LinkedAccounts accounts = session.GetLinkedAccounts();
         var providers = new List<IDataProvider>();
 
         providers.AddRange(accounts.DummyAccounts.Select(t => (IDataProvider)new DummyProvider(t)));

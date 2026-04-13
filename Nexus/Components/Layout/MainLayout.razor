@@ -11,7 +11,8 @@
 @implements IDisposable
 
 <MudThemeProvider @ref="_mudThemeProvider" Theme="_theme"
-    IsDarkMode="IsDarkMode" IsDarkModeChanged="@(v => { _systemIsDark = v; StateHasChanged(); })" />
+    IsDarkMode="IsDarkMode" IsDarkModeChanged="@(v => { _systemIsDark = v; StateHasChanged(); })"
+    ObserveSystemDarkModeChange="@(_themePreference == ThemePreference.System)" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
