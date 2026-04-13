@@ -26,33 +26,42 @@ Nexus is a Blazor Interactive Server dashboard that aggregates work items and pu
 
 ## Current state
 
-The project is in a UI foundation phase. The dashboard shell, component hierarchy, and mock data layer are built. Real data providers and authentication are not yet implemented.
+GitHub OAuth and data fetching are fully implemented. Azure DevOps is planned but not started.
 
-- **Components:** Full dashboard UI — metric cards, tabbed work item and PR lists, animated numbers, theme toggle, header with refresh timestamp.
-- **`DummyProvider`:** A mock `IDataProvider` that returns randomly generated work items and PRs. Used until real providers are wired in. Tags each work item with the account name as a label and prefixes PR repo names with the account name so data from different instances is visually distinguishable.
-- **`AggregateDataProvider`:** Implements `IDataProvider` by combining results from all `DummyProvider` instances constructed from the linked dummy accounts. Registered as the scoped `IDataProvider` in `Program.cs`. Will add real provider construction here as GitHub/ADO providers are implemented.
-- **`RefreshService`:** Tracks the last data refresh time (`LastRefreshed`). Components poll this to display "refreshed X seconds ago" in the header. `Home.razor` auto-refreshes on a 60-second `PeriodicTimer`.
+- **Components:** Full dashboard UI — metric cards, tabbed work item and PR lists, animated numbers, theme toggle, header with refresh timestamp. Theme preference (System/Light/Dark) is persisted to `localStorage`.
+- **`DummyProvider`:** A mock `IDataProvider` that returns randomly generated work items and PRs. Tags each work item with the account name as a label and prefixes PR repo names with the account name so data from different instances is visually distinguishable.
+- **`GitHubProvider`:** Fully implemented. Fetches issues and PRs from monitored repos via GitHub GraphQL API. Monitors only repos in `token.MonitoredRepos` (empty = no data). Uses alias-based multi-repo queries to batch all repos into a single GraphQL request. Handles 403/429 gracefully.
+- **`AggregateDataProvider`:** Implements `IDataProvider` by fanning out to all per-account providers in parallel. Isolates provider failures — errors are logged but don't crash the dashboard. Registered as the scoped `IDataProvider` in `Program.cs`.
+- **`RefreshService`:** Tracks the last data refresh time (`LastRefreshed`). `Home.razor` auto-refreshes on a 60-second `PeriodicTimer`.
 - **`SessionTokenStore`:** Scoped service that encrypts/decrypts linked account tokens using ASP.NET Core Data Protection and persists them to `localStorage` via JSInterop. Loads on first render; fires `AccountsChanged` when accounts are mutated.
 
 ## Data providers
 
-All data sources implement `IDataProvider` and are aggregated via `AggregateDataProvider`:
+All data sources implement `IDataProvider` (in `Nexus/Providers/`) and are aggregated via `AggregateDataProvider`:
 
 ```csharp
 public interface IDataProvider
 {
-    Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync();
-    Task<IEnumerable<WorkItem>> GetUnassignedWorkItemsAsync();
-    Task<IEnumerable<PullRequest>> GetAssignedPullRequestsAsync();
-    Task<IEnumerable<PullRequest>> GetUnassignedPullRequestsAsync();
+    Task<DashboardData> GetDashboardDataAsync();
 }
+
+public record DashboardData(
+    IEnumerable<WorkItem> AssignedWorkItems,
+    IEnumerable<WorkItem> UnassignedWorkItems,
+    IEnumerable<PullRequest> AssignedPullRequests,
+    IEnumerable<PullRequest> UnassignedPullRequests);
 ```
 
-`AggregateDataProvider` is registered as the scoped `IDataProvider`. It constructs per-account provider instances and fans out calls to all of them. Currently only `DummyProvider` instances are constructed; `MicrosoftAccountToken` and `GitHubAccountToken` entries in `LinkedAccounts` are not yet wired to real providers.
+`AggregateDataProvider` constructs per-account provider instances and merges their results. `GitHubProvider` is constructed for each linked `GitHubAccountToken`; `MicrosoftAccountToken` is defined but not yet wired to a real provider.
+
+**GitHub provider details:**
+- Uses GitHub GraphQL API (not REST) to fetch issues and PRs from all monitored repos in a single request.
+- Issues are mapped to `WorkItem`; type is inferred from labels (bug, epic, feature, story, user story → `WorkItemType` enum).
+- PRs assigned to the user or where the user is a requested reviewer → assigned PRs. Open non-draft PRs with no assignees/reviewers → unassigned PRs.
+- Uses `GitHubJsonContext` (source-generated JSON) for serialization performance.
 
 **Planned real providers:**
-- **Azure DevOps:** `Microsoft.TeamFoundationServer.Client` SDK. Auth via Entra ID OAuth 2.0 (manual flow); MSAL manages token refresh with a custom cache backed by the encrypted localStorage entry. ADO resource scope: `499b84ac-1321-427f-aa17-267ca6975798/.default`. Multiple ADO projects as separate service instances.
-- **GitHub:** GitHub REST/GraphQL API. Auth via GitHub OAuth App (manual flow, `repo` scope). Provider checks token expiry before each call and updates the localStorage entry with refreshed tokens.
+- **Azure DevOps:** `Microsoft.TeamFoundationServer.Client` SDK. Auth via Entra ID OAuth 2.0 (manual flow); MSAL manages token refresh with a custom cache backed by the encrypted localStorage entry. ADO resource scope: `499b84ac-1321-427f-aa17-267ca6975798/.default`.
 
 ## Authentication model
 
@@ -65,42 +74,60 @@ public class LinkedAccounts
     public List<MicrosoftAccountToken> MicrosoftAccounts { get; set; } = [];
     public List<GitHubAccountToken> GitHubAccounts { get; set; } = [];
 }
+
+public record GitHubAccountToken(
+    string AccessToken,
+    string Login,
+    string DisplayName,
+    string? RefreshToken,
+    DateTimeOffset? RefreshTokenExpiresAt,
+    DateTimeOffset ExpiresAt)
+{
+    public List<string> MonitoredRepos { get; set; } = []; // "owner/repo" format
+}
 ```
 
 `SessionTokenStore` (scoped) owns the in-memory cache and all reads/writes:
-- **`LoadAsync()`** — called once from `OnAfterRenderAsync` (JS interop requires the browser to be connected). Reads `localStorage`, decrypts with `IDataProtector`, and populates the cache. Corrupt/tampered payloads are silently discarded and the store starts fresh.
+- **`LoadAsync()`** — called once from `OnAfterRenderAsync`. Reads `localStorage`, decrypts with `IDataProtector`, populates cache. Corrupt/tampered payloads are silently discarded.
 - **`GetLinkedAccounts()`** — returns the in-memory cache synchronously (empty if `LoadAsync` hasn't run yet).
-- **`LinkDummyAccountAsync(token)`** — mutates the cache, re-encrypts, writes to localStorage, then fires `AccountsChanged`.
-- **`UnlinkDummyAccountAsync(accountName)`** — removes account by name, re-encrypts, writes to localStorage, then fires `AccountsChanged`.
-- **`AccountsChanged`** event — `Home.razor` and `MainLayout.razor` subscribe to re-fetch data and update the header button label respectively.
+- **`LinkGitHubAccountAsync(token)`** / **`UnlinkGitHubAccountAsync(login)`** — mutate cache, re-encrypt, write to localStorage, fire `AccountsChanged`.
+- **`UpdateGitHubMonitoredReposAsync(login, repos)`** — updates the monitored repo list for a linked GitHub account without unlinking.
+- **`LinkDummyAccountAsync(token)`** / **`UnlinkDummyAccountAsync(accountName)`** — same pattern for dummy accounts.
+- **`AccountsChanged`** event — `Home.razor` and `MainLayout.razor` subscribe to re-fetch data and update the UI.
 
-Data Protection keys are persisted to a file path configured at deployment time (`DataProtection:KeyPath`) so the encryption key survives restarts and localStorage entries remain readable. Falls back to `{ContentRoot}/keys` if not configured.
+Data Protection keys are persisted to a file path configured at deployment time (`DataProtection:KeyPath`) so the encryption key survives restarts. Falls back to `{ContentRoot}/keys` if not configured. Protection purpose: `"Nexus.LinkedAccounts.v1"`.
 
-Both Microsoft and GitHub linking will follow the same OAuth pattern:
-1. A Minimal API endpoint builds the authorization URL (with a `state` param for CSRF) and redirects.
-2. A callback endpoint exchanges the code for tokens via `HttpClient`.
-3. Tokens are encrypted and written to localStorage via `SessionTokenStore`.
+## GitHub OAuth flow
 
-OAuth endpoints are **not yet implemented** — no Minimal API routes exist beyond the Blazor component mapping.
+Two Minimal API endpoints in `Program.cs`:
 
-Multiple accounts per provider are supported.
+1. **`GET /auth/github`** — Generates a random 32-byte state, stores it in an HttpOnly cookie (10 min expiry), then redirects to GitHub OAuth with scopes `repo read:user read:org`.
+2. **`GET /auth/github/callback`** — Validates state cookie, exchanges the code for an access token, fetches the user's profile (login, name), encodes the `GitHubAccountToken` as Base64 JSON, and redirects to `/link-github?token=...`. The client-side `MainLayout.HandleGitHubCallbackAsync` decodes the token and calls `SessionTokenStore.LinkGitHubAccountAsync`.
 
-## App settings structure (planned)
+After linking, `SelectGitHubReposDialog` opens so the user can choose which repos to monitor. It calls GitHub REST API (`/user/repos`, `/user/orgs`, `/orgs/{org}/repos`, `/search/repositories`) and persists selections via `UpdateGitHubMonitoredReposAsync`.
+
+HTTP clients registered in `Program.cs`:
+- `"GitHub"` — `https://api.github.com/`, Bearer auth, GitHub API version header.
+- `"GitHubOAuth"` — `https://github.com/`, for token exchange.
+
+Multiple GitHub accounts are supported.
+
+## App settings structure
 
 ```json
 {
   "DataProtection": { "KeyPath": "/var/keys" },
-  "Microsoft": { "ClientId": "", "ClientSecret": "", "AllowedTenants": ["tenant-id"] },
   "GitHub": { "ClientId": "", "ClientSecret": "", "Organization": "" },
+  "Microsoft": { "ClientId": "", "ClientSecret": "", "AllowedTenants": ["tenant-id"] },
   "AdoProjects": [
     { "OrgUrl": "https://dev.azure.com/org", "ProjectName": "Project", "Team": "Team Name" }
   ]
 }
 ```
 
-Currently `appsettings.json` contains only logging configuration. Sensitive values must come from environment variables or a secrets manager, not `appsettings.json`.
+`GitHub:ClientId` and `GitHub:ClientSecret` are required for the OAuth flow. Sensitive values must come from environment variables or a secrets manager, not `appsettings.json`. `GitHub:Organization` is defined in `GitHubSettings` but not yet used.
 
 ## Extending the app
 
-- **New provider:** Add a token slot to `LinkedAccounts`, implement `IDataProvider`, wire construction into `AggregateDataProvider`.
-- **Write actions:** New Minimal API endpoints + extended service methods — no structural changes.
+- **New provider:** Add a token slot to `LinkedAccounts`, implement `IDataProvider` returning a `DashboardData`, wire construction into `AggregateDataProvider`.
+- **Write actions:** New Minimal API endpoints + extended service methods — no structural changes needed.
