@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Nexus.Models;
@@ -10,7 +11,6 @@ namespace Nexus.Providers;
 public class GitHubProvider(
     GitHubAccountToken token,
     IHttpClientFactory httpFactory,
-    GitHubSettings settings,
     ILogger<GitHubProvider> logger) : IDataProvider
 {
     private HttpClient CreateClient()
@@ -21,238 +21,286 @@ public class GitHubProvider(
         return client;
     }
 
-    private string Scope => string.IsNullOrWhiteSpace(settings.Organization)
-        ? $"user:{token.Login}"
-        : $"org:{settings.Organization}";
+    public async Task<DashboardData> GetDashboardDataAsync()
+    {
+        if (token.MonitoredRepos.Count == 0)
+            return new DashboardData([], [], [], []);
 
-    private string RepoFilter => token.MonitoredRepos.Count > 0
-        ? string.Join(" ", token.MonitoredRepos.Select(r => $"repo:{r}"))
-        : Scope;
+        var cache = await FetchGqlCacheAsync();
+        return new DashboardData(
+            AssignedWorkItems: cache.Issues
+                .Where(x => x.AssigneeLogin == token.Login)
+                .Select(x => x.WorkItem),
+            UnassignedWorkItems: cache.Issues
+                .Where(x => x.AssigneeLogin is null)
+                .Select(x => x.WorkItem),
+            AssignedPullRequests: cache.PullRequests
+                .Where(x => x.AssigneeLogins.Contains(token.Login) || x.ReviewerLogins.Contains(token.Login))
+                .Select(x => x.PullRequest),
+            UnassignedPullRequests: cache.PullRequests
+                .Where(x => !x.AssigneeLogins.Any() && x.PullRequest.Status != PullRequestStatus.Draft)
+                .Select(x => x.PullRequest)
+        );
+    }
 
-    public async Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync()
+    private async Task<GqlCache> FetchGqlCacheAsync()
     {
         var client = CreateClient();
-        var repoClause = token.MonitoredRepos.Count > 0 ? $" {RepoFilter}" : "";
-        var items = await FetchAllSearchResultsAsync(client,
-            $"is:issue is:open assignee:{token.Login}{repoClause}");
-        return items.Select(MapIssueToWorkItem);
-    }
+        var query = BuildQuery();
+        var payload = JsonSerializer.Serialize(
+            new GqlRequest(query), GitHubJsonContext.Default.GqlRequest);
 
-    public async Task<IEnumerable<WorkItem>> GetUnassignedWorkItemsAsync()
-    {
-        var client = CreateClient();
-        var items = await FetchAllSearchResultsAsync(client,
-            $"is:issue is:open no:assignee {RepoFilter}");
-        return items.Select(MapIssueToWorkItem);
-    }
+        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        var response = await client.PostAsync("graphql", content);
 
-    public async Task<IEnumerable<PullRequest>> GetAssignedPullRequestsAsync()
-    {
-        var client = CreateClient();
-        var repoClause = token.MonitoredRepos.Count > 0 ? $" {RepoFilter}" : "";
-        var assigned = FetchAllSearchResultsAsync(client, $"is:pr is:open assignee:{token.Login}{repoClause}");
-        var reviewRequested = FetchAllSearchResultsAsync(client, $"is:pr is:open review-requested:{token.Login}{repoClause}");
-        var items = (await assigned).Concat(await reviewRequested)
-            .DistinctBy(i => i.Number)
-            .ToList();
-        return await MapSearchItemsToPullRequestsAsync(client, items);
-    }
-
-    public async Task<IEnumerable<PullRequest>> GetUnassignedPullRequestsAsync()
-    {
-        var client = CreateClient();
-        var items = await FetchAllSearchResultsAsync(client,
-            $"is:pr is:open no:assignee draft:false {RepoFilter}");
-        return await MapSearchItemsToPullRequestsAsync(client, items);
-    }
-
-    private async Task<List<GitHubSearchItem>> FetchAllSearchResultsAsync(
-        HttpClient client, string query)
-    {
-        var all = new List<GitHubSearchItem>();
-        int page = 1;
-        while (true)
-        {
-            var url = $"search/issues?q={Uri.EscapeDataString(query)}&per_page=100&page={page}";
-            var response = await SafeGetSearchAsync(client, url);
-            if (response?.Items is null or { Count: 0 }) break;
-            all.AddRange(response.Items);
-            if (all.Count >= response.TotalCount || response.Items.Count < 100) break;
-            page++;
-        }
-        return all;
-    }
-
-    private async Task<GitHubSearchResponse?> SafeGetSearchAsync(HttpClient client, string url)
-    {
-        var response = await client.GetAsync(url);
         if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
         {
             var body = await response.Content.ReadAsStringAsync();
             logger.LogWarning(
-                "GitHub API returned {StatusCode} for {Login} on {Url}: {Body}",
-                (int)response.StatusCode, token.Login, url, body);
-            return null;
+                "GitHub GraphQL returned {StatusCode} for {Login}: {Body}",
+                (int)response.StatusCode, token.Login, body);
+            return new GqlCache([], []);
         }
-        if (!response.IsSuccessStatusCode)
+
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync(GitHubJsonContext.Default.GqlResponse);
+
+        if (result?.Errors is { Count: > 0 })
         {
-            var body = await response.Content.ReadAsStringAsync();
-            throw new HttpRequestException(
-                $"GitHub search failed with {(int)response.StatusCode} {response.StatusCode}: {body}",
-                inner: null,
-                statusCode: response.StatusCode);
+            foreach (var err in result.Errors)
+                logger.LogWarning("GitHub GraphQL error for {Login}: {Message}", token.Login, err.Message);
         }
-        return await response.Content.ReadFromJsonAsync(GitHubJsonContext.Default.GitHubSearchResponse);
+
+        return ParseGqlResponse(result);
     }
 
-    private WorkItem MapIssueToWorkItem(GitHubSearchItem item)
+    private string BuildQuery()
     {
-        return new WorkItem(
-            Id: $"#{item.Number}",
-            Type: InferWorkItemType(item.Labels),
-            Title: item.Title,
-            Description: item.Body,
-            Creator: new UserReference(item.User.Name ?? item.User.Login, item.User.AvatarUrl),
-            Assignee: item.Assignee is null
-                ? null
-                : new UserReference(item.Assignee.Name ?? item.Assignee.Login, item.Assignee.AvatarUrl),
+        var repoFragment = """
+            issues(first: 100, states: [OPEN]) {
+              nodes {
+                number title body createdAt updatedAt
+                author { login avatarUrl ... on User { name } }
+                assignees(first: 20) { nodes { login avatarUrl name } }
+                labels(first: 20) { nodes { name } }
+              }
+            }
+            pullRequests(first: 100, states: [OPEN]) {
+              nodes {
+                number title body isDraft createdAt updatedAt
+                headRefName baseRefName
+                headRepository { nameWithOwner }
+                baseRepository { nameWithOwner }
+                author { login avatarUrl ... on User { name } }
+                assignees(first: 20) { nodes { login avatarUrl name } }
+                reviewRequests(first: 20) {
+                  nodes { requestedReviewer { ... on User { login avatarUrl name } } }
+                }
+              }
+            }
+            """;
+
+        var sb = new StringBuilder("{ ");
+        for (int i = 0; i < token.MonitoredRepos.Count; i++)
+        {
+            var parts = token.MonitoredRepos[i].Split('/', 2);
+            var owner = parts[0].Replace("\"", "");
+            var name = parts[1].Replace("\"", "");
+            sb.Append($"r{i}: repository(owner: \"{owner}\", name: \"{name}\") {{ {repoFragment} }} ");
+        }
+        sb.Append('}');
+        return sb.ToString();
+    }
+
+    private GqlCache ParseGqlResponse(GqlResponse? result)
+    {
+        var issues = new List<MappedIssue>();
+        var prs = new List<MappedPr>();
+
+        if (result?.Data is not { } dataEl)
+            return new GqlCache(issues, prs);
+
+        foreach (var repoProp in dataEl.EnumerateObject())
+        {
+            var repoEl = repoProp.Value;
+
+            if (repoEl.TryGetProperty("issues", out var issuesEl))
+            {
+                var conn = issuesEl.Deserialize(GitHubJsonContext.Default.GqlIssueConnection);
+                if (conn is not null)
+                    issues.AddRange(conn.Nodes.Select(MapIssue));
+            }
+
+            if (repoEl.TryGetProperty("pullRequests", out var prsEl))
+            {
+                var conn = prsEl.Deserialize(GitHubJsonContext.Default.GqlPrConnection);
+                if (conn is not null)
+                    prs.AddRange(conn.Nodes.Select(MapPr));
+            }
+        }
+
+        return new GqlCache(issues, prs);
+    }
+
+    private static MappedIssue MapIssue(GqlIssue node)
+    {
+        var author = node.Author is { } a
+            ? new UserReference(a.Name ?? a.Login, a.AvatarUrl)
+            : new UserReference("unknown", null);
+
+        var firstAssignee = node.Assignees.Nodes.FirstOrDefault();
+        var assigneeRef = firstAssignee is null
+            ? null
+            : new UserReference(firstAssignee.Name ?? firstAssignee.Login, firstAssignee.AvatarUrl);
+
+        var workItem = new WorkItem(
+            Id: $"#{node.Number}",
+            Type: InferWorkItemType(node.Labels.Nodes.Select(l => l.Name)),
+            Title: node.Title,
+            Description: node.Body,
+            Creator: author,
+            Assignee: assigneeRef,
             Status: WorkItemStatus.Active,
-            CreatedAt: item.CreatedAt,
-            UpdatedAt: item.UpdatedAt,
-            Labels: item.Labels.Select(l => l.Name).ToList()
+            CreatedAt: node.CreatedAt,
+            UpdatedAt: node.UpdatedAt,
+            Labels: node.Labels.Nodes.Select(l => l.Name).ToList()
         );
+
+        return new MappedIssue(workItem, firstAssignee?.Login);
     }
 
-    private async Task<IEnumerable<PullRequest>> MapSearchItemsToPullRequestsAsync(
-        HttpClient client, List<GitHubSearchItem> items)
+    private static MappedPr MapPr(GqlPr node)
     {
-        var semaphore = new SemaphoreSlim(5);
-        var tasks = items.Select(async item =>
-        {
-            await semaphore.WaitAsync();
-            try
-            {
-                return await MapSearchItemToPullRequestAsync(client, item);
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        });
-        return await Task.WhenAll(tasks);
-    }
+        var author = node.Author is { } a
+            ? new UserReference(a.Name ?? a.Login, a.AvatarUrl)
+            : new UserReference("unknown", null);
 
-    private async Task<PullRequest> MapSearchItemToPullRequestAsync(
-        HttpClient client, GitHubSearchItem item)
-    {
-        var repoName = ExtractRepoName(item.RepositoryUrl);
-        var prDetail = await client.GetFromJsonAsync(
-            $"repos/{repoName}/pulls/{item.Number}",
-            GitHubJsonContext.Default.GitHubPrDetail);
+        var assignees = node.Assignees.Nodes
+            .Select(u => new UserReference(u.Name ?? u.Login, u.AvatarUrl))
+            .ToList();
+        var assigneeLogins = node.Assignees.Nodes.Select(u => u.Login).ToList();
 
-        var headBranch = prDetail?.Head?.Ref ?? "unknown";
-        var baseBranch = prDetail?.Base?.Ref ?? "main";
-        var headRepo = prDetail?.Head?.RepoFullName ?? repoName;
-        var baseRepo = prDetail?.Base?.RepoFullName ?? repoName;
+        var reviewers = node.ReviewRequests.Nodes
+            .Select(r => r.RequestedReviewer)
+            .OfType<GqlActor>()
+            .Select(u => new UserReference(u.Name ?? u.Login, u.AvatarUrl))
+            .ToList();
+        var reviewerLogins = node.ReviewRequests.Nodes
+            .Select(r => r.RequestedReviewer?.Login)
+            .OfType<string>()
+            .ToList();
 
-        var status = (item.State, item.PullRequest?.MergedAt, item.Draft) switch
-        {
-            ("closed", not null, _) => PullRequestStatus.Merged,
-            ("closed", _, _) => PullRequestStatus.Closed,
-            (_, _, true) => PullRequestStatus.Draft,
-            _ => PullRequestStatus.Open
-        };
+        var headRepo = node.HeadRepository?.NameWithOwner ?? "unknown/unknown";
+        var baseRepo = node.BaseRepository?.NameWithOwner ?? headRepo;
 
-        return new PullRequest(
-            Id: $"#{item.Number}",
-            Title: item.Title,
-            Description: item.Body,
-            Creator: new UserReference(item.User.Name ?? item.User.Login, item.User.AvatarUrl),
-            Source: new RepoBranch(headRepo, headBranch),
-            Target: new RepoBranch(baseRepo, baseBranch),
-            Assignees: item.Assignees
-                .Select(u => new UserReference(u.Name ?? u.Login, u.AvatarUrl))
-                .ToList(),
-            Reviewers: item.RequestedReviewers
-                .Select(u => new UserReference(u.Name ?? u.Login, u.AvatarUrl))
-                .ToList(),
-            Status: status,
-            CreatedAt: item.CreatedAt,
-            UpdatedAt: item.UpdatedAt
+        var pr = new PullRequest(
+            Id: $"#{node.Number}",
+            Title: node.Title,
+            Description: node.Body,
+            Creator: author,
+            Source: new RepoBranch(headRepo, node.HeadRefName),
+            Target: new RepoBranch(baseRepo, node.BaseRefName),
+            Assignees: assignees,
+            Reviewers: reviewers,
+            Status: node.IsDraft ? PullRequestStatus.Draft : PullRequestStatus.Open,
+            CreatedAt: node.CreatedAt,
+            UpdatedAt: node.UpdatedAt
         );
+
+        return new MappedPr(pr, assigneeLogins, reviewerLogins);
     }
 
-    private static WorkItemType InferWorkItemType(List<GitHubLabel> labels)
+    private static WorkItemType InferWorkItemType(IEnumerable<string> labelNames)
     {
-        var names = labels.Select(l => l.Name.ToLowerInvariant()).ToHashSet();
+        var names = labelNames.Select(n => n.ToLowerInvariant()).ToHashSet();
         if (names.Contains("bug") || names.Contains("defect"))       return WorkItemType.Bug;
         if (names.Contains("epic"))                                   return WorkItemType.Epic;
         if (names.Contains("feature") || names.Contains("feat"))     return WorkItemType.Feature;
         if (names.Contains("user story") || names.Contains("story")) return WorkItemType.UserStory;
         return WorkItemType.Task;
     }
-
-    private static string ExtractRepoName(string repositoryUrl)
-    {
-        var uri = new Uri(repositoryUrl);
-        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        // segments: ["repos", "owner", "repo"]
-        return segments.Length >= 3 ? $"{segments[1]}/{segments[2]}" : repositoryUrl;
-    }
 }
+
+// --- Cache types (private to this file via nested-style placement) ---
+
+internal record GqlCache(List<MappedIssue> Issues, List<MappedPr> PullRequests);
+internal record MappedIssue(WorkItem WorkItem, string? AssigneeLogin);
+internal record MappedPr(PullRequest PullRequest, List<string> AssigneeLogins, List<string> ReviewerLogins);
 
 // --- JSON models ---
 
-internal record GitHubSearchResponse(
-    [property: JsonPropertyName("total_count")] int TotalCount,
-    [property: JsonPropertyName("items")] List<GitHubSearchItem> Items);
+internal record GqlRequest(
+    [property: JsonPropertyName("query")] string Query);
 
-internal record GitHubSearchItem(
+internal record GqlResponse(
+    [property: JsonPropertyName("data")] JsonElement? Data,
+    [property: JsonPropertyName("errors")] List<GqlError>? Errors);
+
+internal record GqlError(
+    [property: JsonPropertyName("message")] string Message);
+
+internal record GqlIssueConnection(
+    [property: JsonPropertyName("nodes")] List<GqlIssue> Nodes);
+
+internal record GqlIssue(
     [property: JsonPropertyName("number")] int Number,
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("body")] string? Body,
-    [property: JsonPropertyName("state")] string State,
-    [property: JsonPropertyName("draft")] bool? Draft,
-    [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt,
-    [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt,
-    [property: JsonPropertyName("html_url")] string HtmlUrl,
-    [property: JsonPropertyName("labels")] List<GitHubLabel> Labels,
-    [property: JsonPropertyName("user")] GitHubUser User,
-    [property: JsonPropertyName("assignee")] GitHubUser? Assignee,
-    [property: JsonPropertyName("assignees")] List<GitHubUser> Assignees,
-    [property: JsonPropertyName("requested_reviewers")] List<GitHubUser> RequestedReviewers,
-    [property: JsonPropertyName("pull_request")] GitHubPullRequestLinks? PullRequest,
-    [property: JsonPropertyName("repository_url")] string RepositoryUrl);
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
+    [property: JsonPropertyName("author")] GqlActor? Author,
+    [property: JsonPropertyName("assignees")] GqlUserConnection Assignees,
+    [property: JsonPropertyName("labels")] GqlLabelConnection Labels);
 
-internal record GitHubLabel(
-    [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("color")] string Color);
+internal record GqlPrConnection(
+    [property: JsonPropertyName("nodes")] List<GqlPr> Nodes);
 
-internal record GitHubUser(
+internal record GqlPr(
+    [property: JsonPropertyName("number")] int Number,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("body")] string? Body,
+    [property: JsonPropertyName("isDraft")] bool IsDraft,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
+    [property: JsonPropertyName("headRefName")] string HeadRefName,
+    [property: JsonPropertyName("baseRefName")] string BaseRefName,
+    [property: JsonPropertyName("headRepository")] GqlRepo? HeadRepository,
+    [property: JsonPropertyName("baseRepository")] GqlRepo? BaseRepository,
+    [property: JsonPropertyName("author")] GqlActor? Author,
+    [property: JsonPropertyName("assignees")] GqlUserConnection Assignees,
+    [property: JsonPropertyName("reviewRequests")] GqlReviewRequestConnection ReviewRequests);
+
+internal record GqlActor(
     [property: JsonPropertyName("login")] string Login,
-    [property: JsonPropertyName("avatar_url")] string? AvatarUrl,
+    [property: JsonPropertyName("avatarUrl")] string? AvatarUrl,
     [property: JsonPropertyName("name")] string? Name);
 
-internal record GitHubPullRequestLinks(
-    [property: JsonPropertyName("url")] string Url,
-    [property: JsonPropertyName("html_url")] string HtmlUrl,
-    [property: JsonPropertyName("merged_at")] DateTimeOffset? MergedAt);
+internal record GqlUserConnection(
+    [property: JsonPropertyName("nodes")] List<GqlUser> Nodes);
 
-internal record GitHubPrDetail(
-    [property: JsonPropertyName("head")] GitHubBranchRef Head,
-    [property: JsonPropertyName("base")] GitHubBranchRef Base);
+internal record GqlUser(
+    [property: JsonPropertyName("login")] string Login,
+    [property: JsonPropertyName("avatarUrl")] string? AvatarUrl,
+    [property: JsonPropertyName("name")] string? Name);
 
-internal record GitHubBranchRef(
-    [property: JsonPropertyName("ref")] string Ref,
-    [property: JsonPropertyName("repo")] GitHubRepo? Repo)
-{
-    public string? RepoFullName => Repo is null ? null : $"{Repo.Owner.Login}/{Repo.Name}";
-}
+internal record GqlReviewRequest(
+    [property: JsonPropertyName("requestedReviewer")] GqlActor? RequestedReviewer);
 
-internal record GitHubRepo(
-    [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("owner")] GitHubUser Owner);
+internal record GqlReviewRequestConnection(
+    [property: JsonPropertyName("nodes")] List<GqlReviewRequest> Nodes);
 
-[JsonSerializable(typeof(GitHubSearchResponse))]
-[JsonSerializable(typeof(GitHubPrDetail))]
+internal record GqlRepo(
+    [property: JsonPropertyName("nameWithOwner")] string NameWithOwner);
+
+internal record GqlLabelConnection(
+    [property: JsonPropertyName("nodes")] List<GqlLabel> Nodes);
+
+internal record GqlLabel(
+    [property: JsonPropertyName("name")] string Name);
+
+[JsonSerializable(typeof(GqlRequest))]
+[JsonSerializable(typeof(GqlResponse))]
+[JsonSerializable(typeof(GqlIssueConnection))]
+[JsonSerializable(typeof(GqlPrConnection))]
 internal partial class GitHubJsonContext : JsonSerializerContext { }

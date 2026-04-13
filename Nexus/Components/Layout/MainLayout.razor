@@ -7,14 +7,16 @@
 @inject SessionTokenStore TokenStore
 @inject IDialogService DialogService
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 @implements IDisposable
 
-<MudThemeProvider @ref="_mudThemeProvider" Theme="_theme" @bind-IsDarkMode="_isDarkMode" />
+<MudThemeProvider @ref="_mudThemeProvider" Theme="_theme"
+    IsDarkMode="IsDarkMode" IsDarkModeChanged="@(v => { _systemIsDark = v; StateHasChanged(); })" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<CascadingValue Value="_isDarkMode" Name="IsDarkMode">
+<CascadingValue Value="IsDarkMode" Name="IsDarkMode">
     <MudLayout>
         <MudAppBar Dense Elevation="0" Style="border-bottom: 1px solid var(--mud-palette-divider);">
             <div style="height: 100%; padding: 8px;">
@@ -25,16 +27,10 @@
                 @if (RefreshService.LastRefreshed.HasValue)
                 {
                     <MudText Typo="Typo.caption">
-                        refreshed @(ElapsedSeconds)s ago
+                        last refreshed at @(RefreshService.LastRefreshed!.Value.ToLocalTime().ToString("h:mm tt"))
                     </MudText>
                 }
-                <MudButton StartIcon="@Icons.Material.Filled.AddLink" Variant="Variant.Text" Size="Size.Small"
-                            OnClick="@OpenLinkDialog">
-                    @LinkedAccountsLabel
-                </MudButton>
-                <MudIconButton
-                Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-                Size="Size.Small" OnClick="@ToggleDarkMode" />
+                <MudIconButton Icon="@Icons.Material.Filled.Settings" Size="Size.Small" OnClick="@OpenSettingsDialog" />
             </MudStack>
         </MudAppBar>
         <MudMainContent>
@@ -46,9 +42,16 @@
 </CascadingValue>
 
 @code {
-    private bool _isDarkMode = true;
-    private CancellationTokenSource _cts = new();
+    private ThemePreference _themePreference = ThemePreference.System;
+    private bool _systemIsDark = true;
     private MudThemeProvider? _mudThemeProvider;
+
+    private bool IsDarkMode => _themePreference switch
+    {
+        ThemePreference.Dark => true,
+        ThemePreference.Light => false,
+        _ => _systemIsDark
+    };
 
     private readonly MudTheme _theme = new()
     {
@@ -135,26 +138,10 @@
         }
     };
 
-    private int ElapsedSeconds => RefreshService.LastRefreshed.HasValue
-        ? (int)(DateTimeOffset.UtcNow - RefreshService.LastRefreshed.Value).TotalSeconds
-        : 0;
-
-    private string LinkedAccountsLabel
-    {
-        get
-        {
-            var accounts = TokenStore.GetLinkedAccounts();
-            var count = accounts.DummyAccounts.Count + accounts.GitHubAccounts.Count;
-            return count == 0 ? "Connect account" : $"{count} account{(count == 1 ? "" : "s")}";
-        }
-    }
-
-    private void ToggleDarkMode() => _isDarkMode = !_isDarkMode;
-
     protected override void OnInitialized()
     {
         TokenStore.AccountsChanged += OnAccountsChanged;
-        _ = RunTickLoopAsync(_cts.Token);
+        RefreshService.Refreshed += OnRefreshed;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -162,7 +149,14 @@
         if (firstRender)
         {
             await HandleGitHubCallbackAsync();
-            _isDarkMode = await (_mudThemeProvider?.GetSystemDarkModeAsync() ?? Task.FromResult(_isDarkMode));
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "nexus.theme");
+            if (saved == "dark") _themePreference = ThemePreference.Dark;
+            else if (saved == "light") _themePreference = ThemePreference.Light;
+            else
+            {
+                _themePreference = ThemePreference.System;
+                _systemIsDark = await (_mudThemeProvider?.GetSystemDarkModeAsync() ?? Task.FromResult(_systemIsDark));
+            }
             StateHasChanged();
         }
     }
@@ -219,8 +213,13 @@
         await DialogService.ShowAsync<SelectGitHubReposDialog>("Select Repositories", parameters, options);
     }
 
-    private async Task OpenLinkDialog()
+    private async Task OpenSettingsDialog()
     {
+        var parameters = new DialogParameters<SettingsDialog>
+        {
+            { x => x.ThemePreference, _themePreference },
+            { x => x.ThemePreferenceChanged, (ThemePreference v) => { _ = ApplyThemePreferenceAsync(v); } }
+        };
         var options = new DialogOptions
         {
             MaxWidth = MaxWidth.Small,
@@ -228,23 +227,31 @@
             CloseOnEscapeKey = true,
             BackdropClick = true
         };
-        await DialogService.ShowAsync<ManageAccountsDialog>("Accounts", options);
+        await DialogService.ShowAsync<SettingsDialog>("Settings", parameters, options);
+    }
+
+    private async Task ApplyThemePreferenceAsync(ThemePreference preference)
+    {
+        _themePreference = preference;
+        if (preference == ThemePreference.System)
+        {
+            _systemIsDark = await (_mudThemeProvider?.GetSystemDarkModeAsync() ?? Task.FromResult(_systemIsDark));
+            await JS.InvokeVoidAsync("localStorage.removeItem", "nexus.theme");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "nexus.theme", preference == ThemePreference.Dark ? "dark" : "light");
+        }
+        await InvokeAsync(StateHasChanged);
     }
 
     private void OnAccountsChanged() => InvokeAsync(StateHasChanged);
 
-    private async Task RunTickLoopAsync(CancellationToken ct)
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-        while (await timer.WaitForNextTickAsync(ct))
-        {
-            await InvokeAsync(StateHasChanged);
-        }
-    }
+    private void OnRefreshed() => InvokeAsync(StateHasChanged);
 
     public void Dispose()
     {
         TokenStore.AccountsChanged -= OnAccountsChanged;
-        _cts.Cancel();
+        RefreshService.Refreshed -= OnRefreshed;
     }
 }

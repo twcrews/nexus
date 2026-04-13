@@ -1,0 +1,164 @@
+@inject SessionTokenStore TokenStore
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="4" Style="min-width:320px;padding:0.5rem 0;">
+
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Appearance</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.body1">Theme</MudText>
+                    <MudToggleGroup T="ThemePreference" Value="_themePreference" ValueChanged="OnThemePreferenceChanged"
+                                    Color="Color.Primary" CheckMark="false" Delimiters="false">
+                        <MudToggleItem Value="ThemePreference.System" Text="System" />
+                        <MudToggleItem Value="ThemePreference.Light" Text="Light" />
+                        <MudToggleItem Value="ThemePreference.Dark" Text="Dark" />
+                    </MudToggleGroup>
+                </MudStack>
+            </MudStack>
+
+            <MudDivider />
+
+            <MudStack Spacing="1">
+                @{
+                    var accounts = TokenStore.GetLinkedAccounts();
+                    var hasAny = accounts.DummyAccounts.Count > 0 || accounts.GitHubAccounts.Count > 0;
+                }
+                <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Accounts</MudText>
+                @if (!hasAny)
+                {
+                    <MudText Typo="Typo.body2" Style="opacity:0.6;text-align:center;padding:1rem 0;">
+                        No accounts connected.
+                    </MudText>
+                }
+                else
+                {
+                    @if (accounts.DummyAccounts.Count > 0)
+                    {
+                        @foreach (var account in accounts.DummyAccounts)
+                        {
+                            var name = account.AccountName;
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudIcon Icon="@Icons.Material.Filled.DeveloperBoard" Size="Size.Small" Style="opacity:0.5;" />
+                                    <MudText Typo="Typo.body1">@name</MudText>
+                                </MudStack>
+                                <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                               Size="Size.Small"
+                                               Color="Color.Error"
+                                               OnClick="@(() => RemoveDummyAsync(name))" />
+                            </MudStack>
+                        }
+                    }
+                    @if (accounts.GitHubAccounts.Count > 0)
+                    {
+                        @foreach (var account in accounts.GitHubAccounts)
+                        {
+                            var login = account.Login;
+                            var repoCount = account.MonitoredRepos.Count;
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudIcon Icon="@Icons.Custom.Brands.GitHub" Size="Size.Small" Style="opacity:0.5;" />
+                                    <MudStack Spacing="0">
+                                        <MudText Typo="Typo.body1">@account.DisplayName (@login)</MudText>
+                                        <MudText Typo="Typo.caption" Style="opacity:0.5;">
+                                            @(repoCount == 0 ? "No repositories" : $"{repoCount} {(repoCount == 1 ? "repository" : "repositories")}")
+                                        </MudText>
+                                    </MudStack>
+                                </MudStack>
+                                <MudStack Row="true" Spacing="0">
+                                    <MudTooltip Text="Configure repositories">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Settings"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => ConfigureReposAsync(account))" />
+                                    </MudTooltip>
+                                    <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                                   Size="Size.Small"
+                                                   Color="Color.Error"
+                                                   OnClick="@(() => RemoveGitHubAsync(login))" />
+                                </MudStack>
+                            </MudStack>
+                        }
+                    }
+                }
+                <MudText Typo="Typo.caption" Style="opacity:0.6;">
+                    Account tokens are stored encrypted in your browser's local storage. No data is ever stored on the server or shared.
+                </MudText>
+            </MudStack>
+
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@MudDialog.Cancel">Close</MudButton>
+        <MudMenu Label="Connect account" Variant="Variant.Filled" Color="Color.Primary"
+                 StartIcon="@Icons.Material.Filled.Add" EndIcon="@Icons.Material.Filled.ArrowDropDown">
+            <MudMenuItem OnClick="@AddDummyAccountAsync">Dummy account</MudMenuItem>
+            <MudMenuItem OnClick="@ConnectGitHub">GitHub</MudMenuItem>
+        </MudMenu>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public ThemePreference ThemePreference { get; set; }
+    [Parameter] public Action<ThemePreference> ThemePreferenceChanged { get; set; } = default!;
+
+    private ThemePreference _themePreference;
+
+    protected override void OnParametersSet() => _themePreference = ThemePreference;
+
+    private void OnThemePreferenceChanged(ThemePreference v)
+    {
+        _themePreference = v;
+        ThemePreferenceChanged(v);
+    }
+
+    private async Task RemoveDummyAsync(string accountName)
+    {
+        await TokenStore.UnlinkDummyAccountAsync(accountName);
+        StateHasChanged();
+    }
+
+    private async Task RemoveGitHubAsync(string login)
+    {
+        await TokenStore.UnlinkGitHubAccountAsync(login);
+        StateHasChanged();
+    }
+
+    private async Task AddDummyAccountAsync()
+    {
+        MudDialog.Close();
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = true
+        };
+        await DialogService.ShowAsync<LinkDummyAccountDialog>("Connect Dummy Account", options);
+    }
+
+    private void ConnectGitHub()
+    {
+        MudDialog.Close();
+        Nav.NavigateTo("/auth/github", forceLoad: true);
+    }
+
+    private async Task ConfigureReposAsync(GitHubAccountToken account)
+    {
+        var parameters = new DialogParameters<SelectGitHubReposDialog>
+        {
+            { x => x.Token, account }
+        };
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = false
+        };
+        await DialogService.ShowAsync<SelectGitHubReposDialog>("Configure Repositories", parameters, options);
+    }
+}

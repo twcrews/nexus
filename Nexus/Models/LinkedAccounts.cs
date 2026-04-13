@@ -25,7 +25,7 @@ public class GitHubAccountToken
     public string Login { get; set; } = "";
     public string DisplayName { get; set; } = "";
     /// <summary>
-    /// Repositories to monitor in owner/repo format. Empty list means monitor all (default scope).
+    /// Repositories to monitor in owner/repo format. Empty list means monitor nothing (explicit opt-in required).
     /// </summary>
     public List<string> MonitoredRepos { get; set; } = [];
 }

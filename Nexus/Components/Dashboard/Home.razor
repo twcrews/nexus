@@ -75,16 +75,11 @@ else
 
     private async Task RefreshAsync()
     {
-        var wi = DataProvider.GetAssignedWorkItemsAsync();
-        var unwi = DataProvider.GetUnassignedWorkItemsAsync();
-        var pr = DataProvider.GetAssignedPullRequestsAsync();
-        var unpr = DataProvider.GetUnassignedPullRequestsAsync();
-
-        _assignedWorkItems   = await wi;
-        _unassignedWorkItems = await unwi;
-        _assignedPrs         = await pr;
-        _unassignedPrs       = await unpr;
-
+        var data = await DataProvider.GetDashboardDataAsync();
+        _assignedWorkItems   = data.AssignedWorkItems;
+        _unassignedWorkItems = data.UnassignedWorkItems;
+        _assignedPrs         = data.AssignedPullRequests;
+        _unassignedPrs       = data.UnassignedPullRequests;
         RefreshService.NotifyRefreshed();
     }
 

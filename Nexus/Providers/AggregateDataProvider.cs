@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Options;
 using Nexus.Models;
 using Nexus.Services;
 
@@ -7,21 +6,29 @@ namespace Nexus.Providers;
 public class AggregateDataProvider(
     SessionTokenStore session,
     IHttpClientFactory httpFactory,
-    IOptions<GitHubSettings> githubSettings,
     ILogger<AggregateDataProvider> logger,
     ILoggerFactory loggerFactory) : IDataProvider
 {
-    public Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync() =>
-        AggregateAsync(p => p.GetAssignedWorkItemsAsync());
+    public async Task<DashboardData> GetDashboardDataAsync()
+    {
+        var providers = BuildProviders();
+        var results = await Task.WhenAll(providers.Select(async p =>
+        {
+            try { return await p.GetDashboardDataAsync(); }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Provider {Provider} failed", p.GetType().Name);
+                return new DashboardData([], [], [], []);
+            }
+        }));
 
-    public Task<IEnumerable<WorkItem>> GetUnassignedWorkItemsAsync() =>
-        AggregateAsync(p => p.GetUnassignedWorkItemsAsync());
-
-    public Task<IEnumerable<PullRequest>> GetAssignedPullRequestsAsync() =>
-        AggregateAsync(p => p.GetAssignedPullRequestsAsync());
-
-    public Task<IEnumerable<PullRequest>> GetUnassignedPullRequestsAsync() =>
-        AggregateAsync(p => p.GetUnassignedPullRequestsAsync());
+        return new DashboardData(
+            AssignedWorkItems: results.SelectMany(r => r.AssignedWorkItems),
+            UnassignedWorkItems: results.SelectMany(r => r.UnassignedWorkItems),
+            AssignedPullRequests: results.SelectMany(r => r.AssignedPullRequests),
+            UnassignedPullRequests: results.SelectMany(r => r.UnassignedPullRequests)
+        );
+    }
 
     private IEnumerable<IDataProvider> BuildProviders()
     {
@@ -31,24 +38,9 @@ public class AggregateDataProvider(
         providers.AddRange(accounts.DummyAccounts.Select(t => (IDataProvider)new DummyProvider(t)));
 
         providers.AddRange(accounts.GitHubAccounts.Select(t =>
-            (IDataProvider)new GitHubProvider(t, httpFactory, githubSettings.Value,
+            (IDataProvider)new GitHubProvider(t, httpFactory,
                 loggerFactory.CreateLogger<GitHubProvider>())));
 
         return providers;
-    }
-
-    private async Task<IEnumerable<T>> AggregateAsync<T>(Func<IDataProvider, Task<IEnumerable<T>>> fetch)
-    {
-        var tasks = BuildProviders().Select(async p =>
-        {
-            try { return await fetch(p); }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Provider {Provider} failed", p.GetType().Name);
-                return Enumerable.Empty<T>();
-            }
-        });
-        var results = await Task.WhenAll(tasks);
-        return results.SelectMany(x => x);
     }
 }

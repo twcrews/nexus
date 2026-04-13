@@ -2,10 +2,13 @@ using Nexus.Models;
 
 namespace Nexus.Providers;
 
+public record DashboardData(
+    IEnumerable<WorkItem> AssignedWorkItems,
+    IEnumerable<WorkItem> UnassignedWorkItems,
+    IEnumerable<PullRequest> AssignedPullRequests,
+    IEnumerable<PullRequest> UnassignedPullRequests);
+
 public interface IDataProvider
 {
-    Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync();
-    Task<IEnumerable<WorkItem>> GetUnassignedWorkItemsAsync();
-    Task<IEnumerable<PullRequest>> GetAssignedPullRequestsAsync();
-    Task<IEnumerable<PullRequest>> GetUnassignedPullRequestsAsync();
+    Task<DashboardData> GetDashboardDataAsync();
 }

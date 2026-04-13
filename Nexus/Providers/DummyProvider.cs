@@ -53,21 +53,17 @@ public class DummyProvider(DummyAccountToken token) : IDataProvider
         token.AccountName,
         $"https://i.pravatar.cc/64?u={Uri.EscapeDataString(token.AccountName)}");
 
-    public Task<IEnumerable<WorkItem>> GetAssignedWorkItemsAsync() =>
-        Task.FromResult<IEnumerable<WorkItem>>(
-            GenerateWorkItems(new Random(), Users, DateTimeOffset.UtcNow, count: 8, assignedTo: AccountUser));
-
-    public Task<IEnumerable<WorkItem>> GetUnassignedWorkItemsAsync() =>
-        Task.FromResult<IEnumerable<WorkItem>>(
-            GenerateWorkItems(new Random(), Users, DateTimeOffset.UtcNow, count: 7, assignedTo: null));
-
-    public Task<IEnumerable<PullRequest>> GetAssignedPullRequestsAsync() =>
-        Task.FromResult<IEnumerable<PullRequest>>(
-            GeneratePullRequests(new Random(), Users, DateTimeOffset.UtcNow, count: 5, assignedTo: AccountUser));
-
-    public Task<IEnumerable<PullRequest>> GetUnassignedPullRequestsAsync() =>
-        Task.FromResult<IEnumerable<PullRequest>>(
-            GeneratePullRequests(new Random(), Users, DateTimeOffset.UtcNow, count: 5, assignedTo: null));
+    public Task<DashboardData> GetDashboardDataAsync()
+    {
+        var rng = new Random();
+        var now = DateTimeOffset.UtcNow;
+        return Task.FromResult(new DashboardData(
+            AssignedWorkItems: GenerateWorkItems(rng, Users, now, count: 8, assignedTo: AccountUser),
+            UnassignedWorkItems: GenerateWorkItems(rng, Users, now, count: 7, assignedTo: null),
+            AssignedPullRequests: GeneratePullRequests(rng, Users, now, count: 5, assignedTo: AccountUser),
+            UnassignedPullRequests: GeneratePullRequests(rng, Users, now, count: 5, assignedTo: null)
+        ));
+    }
 
     private List<WorkItem> GenerateWorkItems(
         Random rng, UserReference[] users, DateTimeOffset now, int count, UserReference? assignedTo)
