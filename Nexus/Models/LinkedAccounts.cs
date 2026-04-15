@@ -11,17 +11,18 @@ public record DummyAccountToken(string AccountName);
 
 public class MicrosoftAccountToken
 {
-    public string AccessToken { get; set; } = "";
-    public string RefreshToken { get; set; } = "";
-    public DateTimeOffset ExpiresAt { get; set; }
+    /// <summary>User's UPN / email, used as a stable identifier.</summary>
+    public string Login { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string PersonalAccessToken { get; set; } = "";
+    /// <summary>The ADO org URL provided at link time, e.g. https://dev.azure.com/myorg</summary>
+    public string OrgUrl { get; set; } = "";
+    public List<AdoMonitoredProject> MonitoredProjects { get; set; } = [];
 }
 
 public class GitHubAccountToken
 {
-    public string AccessToken { get; set; } = "";
-    public DateTimeOffset ExpiresAt { get; set; }
-    public string? RefreshToken { get; set; }
-    public DateTimeOffset? RefreshTokenExpiresAt { get; set; }
+    public string PersonalAccessToken { get; set; } = "";
     public string Login { get; set; } = "";
     public string DisplayName { get; set; } = "";
     /// <summary>

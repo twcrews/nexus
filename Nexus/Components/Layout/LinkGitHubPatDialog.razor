@@ -1,0 +1,109 @@
+@using System.Net.Http.Headers
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@inject IHttpClientFactory HttpFactory
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width:360px;padding:0.5rem 0;">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Custom.Brands.GitHub" Size="Size.Large" Style="opacity:0.7;" />
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.subtitle1"><strong>GitHub</strong></MudText>
+                    <MudText Typo="Typo.body2" Style="opacity:0.6;">
+                        Enter a personal access token with <code>repo</code>, <code>read:user</code>, and <code>read:org</code> scopes.
+                    </MudText>
+                </MudStack>
+            </MudStack>
+
+            <MudTextField @bind-Value="_pat"
+                          Label="Personal access token"
+                          InputType="InputType.Password"
+                          Variant="Variant.Outlined"
+                          Disabled="@(_validating || _resolved is not null)"
+                          Immediate="true" />
+
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+            }
+
+            @if (_resolved is not null)
+            {
+                <MudAlert Severity="Severity.Success" Dense="true">
+                    Connected as <strong>@_resolved.DisplayName</strong> (@_resolved.Login)
+                </MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@Cancel" Disabled="@_validating">Cancel</MudButton>
+        @if (_resolved is null)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="@(string.IsNullOrWhiteSpace(_pat) || _validating)"
+                       OnClick="@ValidateAsync">
+                @if (_validating) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> } else { <text>Connect</text> }
+            </MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@Save">
+                Save
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private string _pat = "";
+    private bool _validating = false;
+    private string? _error;
+    private GitHubAccountToken? _resolved;
+
+    private async Task ValidateAsync()
+    {
+        _validating = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpFactory.CreateClient("GitHub");
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", _pat.Trim());
+
+            var user = await client.GetFromJsonAsync<GitHubUserDto>("user", JsonSerializerOptions.Web);
+            if (user is null)
+            {
+                _error = "Invalid token — could not retrieve profile.";
+                return;
+            }
+
+            _resolved = new GitHubAccountToken
+            {
+                PersonalAccessToken = _pat.Trim(),
+                Login = user.Login,
+                DisplayName = user.Name ?? user.Login
+            };
+        }
+        catch
+        {
+            _error = "Invalid token or network error.";
+        }
+        finally
+        {
+            _validating = false;
+        }
+    }
+
+    private void Save() => MudDialog.Close(DialogResult.Ok(_resolved));
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private record GitHubUserDto(
+        [property: JsonPropertyName("login")] string Login,
+        [property: JsonPropertyName("name")] string? Name);
+}

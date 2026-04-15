@@ -41,6 +41,10 @@ public class AggregateDataProvider(
             (IDataProvider)new GitHubProvider(t, httpFactory,
                 loggerFactory.CreateLogger<GitHubProvider>())));
 
+        providers.AddRange(accounts.MicrosoftAccounts.Select(t =>
+            (IDataProvider)new AdoProvider(t,
+                loggerFactory.CreateLogger<AdoProvider>())));
+
         return providers;
     }
 }

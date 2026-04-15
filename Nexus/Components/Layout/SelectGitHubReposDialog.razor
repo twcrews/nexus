@@ -162,7 +162,7 @@
     {
         var client = HttpFactory.CreateClient("GitHub");
         client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Token.AccessToken);
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Token.PersonalAccessToken);
         return client;
     }
 

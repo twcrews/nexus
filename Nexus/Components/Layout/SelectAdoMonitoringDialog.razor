@@ -1,0 +1,313 @@
+@using System.Net.Http.Headers
+@using System.Text
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@inject SessionTokenStore TokenStore
+
+<MudDialog Style="max-height:85vh;">
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width:520px;padding:0.5rem 0;">
+            @if (_loading)
+            {
+                <MudStack AlignItems="AlignItems.Center" Style="padding:2rem 0;">
+                    <MudProgressCircular Indeterminate="true" />
+                    <MudText Typo="Typo.body2" Style="opacity:0.6;">@_loadingMessage</MudText>
+                </MudStack>
+            }
+            else if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error">@_error</MudAlert>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Style="opacity:0.6;">
+                    Check the projects you want to monitor for
+                    <strong>@Token.DisplayName</strong>.
+                    Expand a project to choose repositories (for pull requests) and a team (for work items).
+                </MudText>
+                @if (_projects.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Style="opacity:0.6;text-align:center;padding:1rem 0;">
+                        No projects found.
+                    </MudText>
+                }
+                else
+                {
+                    <MudPaper Outlined="true" Style="max-height:480px;overflow-y:auto;">
+                        <MudExpansionPanels MultiExpansion="true" Elevation="0">
+                            @foreach (var project in _projects)
+                            {
+                                var p = project;
+                                var sel = GetOrCreateSelection(p.Name);
+                                var details = _projectDetails.TryGetValue(p.Name, out var d) ? d : null;
+                                <MudExpansionPanel IsExpanded="@sel.Expanded"
+                                                   IsExpandedChanged="@((bool v) => OnProjectExpandedAsync(v, p.Name, sel))"
+                                                   DisableGutters="true">
+                                    <TitleContent>
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2"
+                                                  Style="padding: 4px 0;">
+                                            <MudCheckBox T="bool"
+                                                         Value="@sel.Included"
+                                                         ValueChanged="@(v => { sel.Included = v; if (v) sel.Expanded = true; StateHasChanged(); })"
+                                                         Dense="true"
+                                                         @onclick:stopPropagation="true" />
+                                            <MudText Typo="Typo.body1">@p.Name</MudText>
+                                            @if (sel.Included)
+                                            {
+                                                <MudText Typo="Typo.caption" Style="opacity:0.5;">
+                                                    @(sel.RepoNames.Count) @(sel.RepoNames.Count == 1 ? "repo" : "repos")
+                                                    @if (sel.TeamName is not null) { <text>, @sel.TeamName</text> }
+                                                </MudText>
+                                            }
+                                        </MudStack>
+                                    </TitleContent>
+                                    <ChildContent>
+                                        <MudStack Spacing="3" Style="padding:0.5rem 1rem 1rem 1rem;">
+                                            @if (details is null)
+                                            {
+                                                <MudProgressLinear Indeterminate="true" />
+                                            }
+                                            else
+                                            {
+                                                @* Repos *@
+                                                <MudStack Spacing="1">
+                                                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Repositories (pull requests)</MudText>
+                                                    @if (details.Repos.Count == 0)
+                                                    {
+                                                        <MudText Typo="Typo.body2" Style="opacity:0.5;">No repositories found.</MudText>
+                                                    }
+                                                    else
+                                                    {
+                                                        <MudPaper Outlined="true" Style="max-height:160px;overflow-y:auto;">
+                                                            <MudList T="string" Dense="true">
+                                                                @foreach (var repo in details.Repos)
+                                                                {
+                                                                    var repoName = repo;
+                                                                    <MudListItem T="string" Dense="true">
+                                                                        <MudCheckBox T="bool"
+                                                                                     Value="@sel.RepoNames.Contains(repoName)"
+                                                                                     ValueChanged="@(v => { if (v) sel.RepoNames.Add(repoName); else sel.RepoNames.Remove(repoName); StateHasChanged(); })"
+                                                                                     Dense="true"
+                                                                                     Label="@repoName" />
+                                                                    </MudListItem>
+                                                                }
+                                                            </MudList>
+                                                        </MudPaper>
+                                                    }
+                                                </MudStack>
+
+                                                @* Teams *@
+                                                <MudStack Spacing="1">
+                                                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Team (work items)</MudText>
+                                                    @if (details.Teams.Count == 0)
+                                                    {
+                                                        <MudText Typo="Typo.body2" Style="opacity:0.5;">No teams found.</MudText>
+                                                    }
+                                                    else if (details.Teams.Count == 1)
+                                                    {
+                                                        @* Single team is auto-selected in LoadProjectDetailsAsync *@
+                                                        <MudText Typo="Typo.body2">@details.Teams[0]</MudText>
+                                                    }
+                                                    else
+                                                    {
+                                                        <MudSelect T="string"
+                                                                   Value="@sel.TeamName"
+                                                                   ValueChanged="@(v => { sel.TeamName = v; StateHasChanged(); })"
+                                                                   Placeholder="None (skip work items)"
+                                                                   Clearable="true"
+                                                                   Variant="Variant.Outlined"
+                                                                   Dense="true"
+                                                                   Margin="Margin.Dense">
+                                                            @foreach (var team in details.Teams)
+                                                            {
+                                                                <MudSelectItem Value="@team">@team</MudSelectItem>
+                                                            }
+                                                        </MudSelect>
+                                                    }
+                                                </MudStack>
+                                            }
+                                        </MudStack>
+                                    </ChildContent>
+                                </MudExpansionPanel>
+                            }
+                        </MudExpansionPanels>
+                    </MudPaper>
+                }
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@Cancel">@(_loading ? "Cancel" : "Skip")</MudButton>
+        @if (!_loading && _error is null)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="@_saving"
+                       OnClick="@SaveAsync">
+                @if (_saving) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> } else { <text>Save</text> }
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public MicrosoftAccountToken Token { get; set; } = default!;
+
+    private bool _loading = true;
+    private bool _saving = false;
+    private string? _error;
+    private string _loadingMessage = "Loading projects…";
+
+    private List<AdoProjectDto> _projects = [];
+    private Dictionary<string, ProjectSelection> _selections = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, ProjectDetails> _projectDetails = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly JsonSerializerOptions _jsonOpts = JsonSerializerOptions.Web;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadProjectsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to connect to Azure DevOps: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string BasicAuthHeader =>
+        Convert.ToBase64String(Encoding.ASCII.GetBytes($":{Token.PersonalAccessToken}"));
+
+    private HttpClient CreateAdoClient()
+    {
+        var client = new HttpClient();
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Nexus/1.0");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", BasicAuthHeader);
+        return client;
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        var orgUrl = Token.OrgUrl.TrimEnd('/');
+        using var client = CreateAdoClient();
+        var result = await client.GetFromJsonAsync<AdoListDto<AdoProjectDto>>(
+            $"{orgUrl}/_apis/projects?api-version=7.1&$top=200", _jsonOpts);
+        _projects = result?.Value ?? [];
+
+        // Pre-populate selections from existing monitored projects for this org.
+        foreach (var existing in Token.MonitoredProjects
+            .Where(p => p.OrgUrl.TrimEnd('/').Equals(orgUrl, StringComparison.OrdinalIgnoreCase)))
+        {
+            var sel = GetOrCreateSelection(existing.ProjectName);
+            sel.Included = true;
+            sel.RepoNames = [..existing.RepoNames];
+            sel.TeamName = existing.TeamName;
+        }
+    }
+
+    private async Task OnProjectExpandedAsync(bool expanded, string projectName, ProjectSelection sel)
+    {
+        sel.Expanded = expanded;
+        if (expanded) await LoadProjectDetailsAsync(projectName);
+        StateHasChanged();
+    }
+
+    private async Task LoadProjectDetailsAsync(string projectName)
+    {
+        if (_projectDetails.ContainsKey(projectName)) return;
+
+        var orgUrl = Token.OrgUrl.TrimEnd('/');
+        using var client = CreateAdoClient();
+
+        var reposTask = client.GetFromJsonAsync<AdoListDto<AdoRepoDto>>(
+            $"{orgUrl}/{Uri.EscapeDataString(projectName)}/_apis/git/repositories?api-version=7.1", _jsonOpts);
+        var teamsTask = client.GetFromJsonAsync<AdoListDto<AdoTeamDto>>(
+            $"{orgUrl}/_apis/projects/{Uri.EscapeDataString(projectName)}/teams?api-version=7.1", _jsonOpts);
+
+        await Task.WhenAll(reposTask, teamsTask);
+
+        var repos = (await reposTask)?.Value?.Select(r => r.Name).OrderBy(n => n).ToList() ?? [];
+        var teams = (await teamsTask)?.Value?.Select(t => t.Name).OrderBy(n => n).ToList() ?? [];
+
+        if (teams.Count == 1)
+        {
+            var sel = GetOrCreateSelection(projectName);
+            sel.TeamName ??= teams[0];
+        }
+
+        _projectDetails[projectName] = new ProjectDetails(repos, teams);
+        StateHasChanged();
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+
+        var orgUrl = Token.OrgUrl.TrimEnd('/');
+        var newProjects = _selections.Values
+            .Where(s => s.Included)
+            .Select(s => new AdoMonitoredProject
+            {
+                OrgUrl = orgUrl,
+                ProjectName = s.ProjectName,
+                RepoNames = [..s.RepoNames],
+                TeamName = s.TeamName
+            })
+            .ToList();
+
+        // Keep projects from other orgs unchanged.
+        var kept = Token.MonitoredProjects
+            .Where(p => !p.OrgUrl.TrimEnd('/').Equals(orgUrl, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        kept.AddRange(newProjects);
+
+        await TokenStore.UpdateMicrosoftMonitoredProjectsAsync(Token.Login, kept);
+        _saving = false;
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private ProjectSelection GetOrCreateSelection(string projectName)
+    {
+        if (!_selections.TryGetValue(projectName, out var sel))
+        {
+            sel = new ProjectSelection(projectName);
+            _selections[projectName] = sel;
+        }
+        return sel;
+    }
+
+    private class ProjectSelection(string projectName)
+    {
+        public string ProjectName { get; } = projectName;
+        public bool Included { get; set; }
+        public bool Expanded { get; set; }
+        public HashSet<string> RepoNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public string? TeamName { get; set; }
+    }
+
+    private record ProjectDetails(List<string> Repos, List<string> Teams);
+
+    private record AdoListDto<T>(
+        [property: JsonPropertyName("value")] List<T>? Value,
+        [property: JsonPropertyName("count")] int Count);
+
+    private record AdoProjectDto(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("name")] string Name);
+
+    private record AdoRepoDto(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("name")] string Name);
+
+    private record AdoTeamDto(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("name")] string Name);
+}

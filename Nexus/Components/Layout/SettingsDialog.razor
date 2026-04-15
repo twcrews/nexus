@@ -1,6 +1,5 @@
 @inject SessionTokenStore TokenStore
 @inject IDialogService DialogService
-@inject NavigationManager Nav
 
 <MudDialog>
     <DialogContent>
@@ -24,7 +23,9 @@
             <MudStack Spacing="1">
                 @{
                     var accounts = TokenStore.GetLinkedAccounts();
-                    var hasAny = accounts.DummyAccounts.Count > 0 || accounts.GitHubAccounts.Count > 0;
+                    var hasAny = accounts.DummyAccounts.Count > 0
+                        || accounts.GitHubAccounts.Count > 0
+                        || accounts.MicrosoftAccounts.Count > 0;
                 }
                 <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Accounts</MudText>
                 @if (!hasAny)
@@ -82,6 +83,36 @@
                             </MudStack>
                         }
                     }
+                    @if (accounts.MicrosoftAccounts.Count > 0)
+                    {
+                        @foreach (var account in accounts.MicrosoftAccounts)
+                        {
+                            var login = account.Login;
+                            var projectCount = account.MonitoredProjects.Count;
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudIcon Icon="@Icons.Custom.Brands.MicrosoftAzure" Size="Size.Small" Style="opacity:0.5;" />
+                                    <MudStack Spacing="0">
+                                        <MudText Typo="Typo.body1">@account.DisplayName</MudText>
+                                        <MudText Typo="Typo.caption" Style="opacity:0.5;">
+                                            @(projectCount == 0 ? "No projects" : $"{projectCount} {(projectCount == 1 ? "project" : "projects")}")
+                                        </MudText>
+                                    </MudStack>
+                                </MudStack>
+                                <MudStack Row="true" Spacing="0">
+                                    <MudTooltip Text="Configure monitoring">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Settings"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => ConfigureAdoAsync(account))" />
+                                    </MudTooltip>
+                                    <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                                   Size="Size.Small"
+                                                   Color="Color.Error"
+                                                   OnClick="@(() => RemoveMicrosoftAsync(login))" />
+                                </MudStack>
+                            </MudStack>
+                        }
+                    }
                 }
                 <MudText Typo="Typo.caption" Style="opacity:0.6;">
                     Account tokens are stored encrypted in your browser's local storage. No data is ever stored on the server or shared.
@@ -95,7 +126,8 @@
         <MudMenu Label="Connect account" Variant="Variant.Filled" Color="Color.Primary"
                  StartIcon="@Icons.Material.Filled.Add" EndIcon="@Icons.Material.Filled.ArrowDropDown">
             <MudMenuItem OnClick="@AddDummyAccountAsync">Dummy account</MudMenuItem>
-            <MudMenuItem OnClick="@ConnectGitHub">GitHub</MudMenuItem>
+            <MudMenuItem OnClick="@ConnectGitHubAsync">GitHub</MudMenuItem>
+            <MudMenuItem OnClick="@ConnectMicrosoftAsync">Azure DevOps</MudMenuItem>
         </MudMenu>
     </DialogActions>
 </MudDialog>
@@ -140,10 +172,96 @@
         await DialogService.ShowAsync<LinkDummyAccountDialog>("Connect Dummy Account", options);
     }
 
-    private void ConnectGitHub()
+    private async Task ConnectGitHubAsync()
     {
         MudDialog.Close();
-        Nav.NavigateTo("/auth/github", forceLoad: true);
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = false
+        };
+        var result = await DialogService.ShowAsync<LinkGitHubPatDialog>("Connect GitHub", options);
+        var dialogResult = await result.Result;
+        if (dialogResult is { Canceled: false } && dialogResult.Data is GitHubAccountToken token)
+        {
+            await TokenStore.LinkGitHubAccountAsync(token);
+            await OpenSelectReposDialogAsync(token);
+        }
+    }
+
+    private async Task ConnectMicrosoftAsync()
+    {
+        MudDialog.Close();
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = false
+        };
+        var result = await DialogService.ShowAsync<LinkAdoPatDialog>("Connect Azure DevOps", options);
+        var dialogResult = await result.Result;
+        if (dialogResult is { Canceled: false } && dialogResult.Data is MicrosoftAccountToken token)
+        {
+            await TokenStore.LinkMicrosoftAccountAsync(token);
+            await OpenSelectAdoMonitoringDialogAsync(token);
+        }
+    }
+
+    private async Task OpenSelectReposDialogAsync(GitHubAccountToken token)
+    {
+        var parameters = new DialogParameters<SelectGitHubReposDialog>
+        {
+            { x => x.Token, token }
+        };
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseOnEscapeKey = false,
+            BackdropClick = false
+        };
+        await DialogService.ShowAsync<SelectGitHubReposDialog>("Select Repositories", parameters, options);
+    }
+
+    private async Task OpenSelectAdoMonitoringDialogAsync(MicrosoftAccountToken token)
+    {
+        var parameters = new DialogParameters<SelectAdoMonitoringDialog>
+        {
+            { x => x.Token, token }
+        };
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseOnEscapeKey = false,
+            BackdropClick = false
+        };
+        await DialogService.ShowAsync<SelectAdoMonitoringDialog>("Configure Azure DevOps", parameters, options);
+    }
+
+    private async Task RemoveMicrosoftAsync(string login)
+    {
+        await TokenStore.UnlinkMicrosoftAccountAsync(login);
+        StateHasChanged();
+    }
+
+    private async Task ConfigureAdoAsync(MicrosoftAccountToken account)
+    {
+        var parameters = new DialogParameters<SelectAdoMonitoringDialog>
+        {
+            { x => x.Token, account }
+        };
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseOnEscapeKey = true,
+            BackdropClick = false
+        };
+        await DialogService.ShowAsync<SelectAdoMonitoringDialog>("Configure Azure DevOps", parameters, options);
     }
 
     private async Task ConfigureReposAsync(GitHubAccountToken account)

@@ -90,6 +90,33 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
         AccountsChanged?.Invoke();
     }
 
+    public async Task LinkMicrosoftAccountAsync(MicrosoftAccountToken token)
+    {
+        LinkedAccounts accounts = await LoadAsync();
+        accounts.MicrosoftAccounts.RemoveAll(a => a.Login == token.Login);
+        accounts.MicrosoftAccounts.Add(token);
+        await PersistAsync(accounts);
+        AccountsChanged?.Invoke();
+    }
+
+    public async Task UnlinkMicrosoftAccountAsync(string login)
+    {
+        LinkedAccounts accounts = await LoadAsync();
+        accounts.MicrosoftAccounts.RemoveAll(a => a.Login == login);
+        await PersistAsync(accounts);
+        AccountsChanged?.Invoke();
+    }
+
+    public async Task UpdateMicrosoftMonitoredProjectsAsync(string login, List<AdoMonitoredProject> projects)
+    {
+        LinkedAccounts accounts = await LoadAsync();
+        MicrosoftAccountToken? account = accounts.MicrosoftAccounts.FirstOrDefault(a => a.Login == login);
+        if (account is null) return;
+        account.MonitoredProjects = projects;
+        await PersistAsync(accounts);
+        AccountsChanged?.Invoke();
+    }
+
     private async Task PersistAsync(LinkedAccounts accounts)
     {
         var json = JsonSerializer.Serialize(accounts);

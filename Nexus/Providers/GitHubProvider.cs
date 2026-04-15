@@ -17,7 +17,7 @@ public class GitHubProvider(
     {
         HttpClient client = httpFactory.CreateClient("GitHub");
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", token.AccessToken);
+            new AuthenticationHeaderValue("Bearer", token.PersonalAccessToken);
         return client;
     }
 

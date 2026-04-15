@@ -1,0 +1,132 @@
+@using System.Net.Http.Headers
+@using System.Text
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@inject ILogger<LinkAdoPatDialog> Logger
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width:380px;padding:0.5rem 0;">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Custom.Brands.MicrosoftAzure" Size="Size.Large" Style="opacity:0.7;" />
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.subtitle1"><strong>Azure DevOps</strong></MudText>
+                    <MudText Typo="Typo.body2" Style="opacity:0.6;">
+                        Enter your organization URL and a personal access token with
+                        <code>Work Items (Read)</code> and <code>Code (Read)</code> scopes.
+                    </MudText>
+                </MudStack>
+            </MudStack>
+
+            <MudTextField @bind-Value="_orgUrl"
+                          Label="Organization URL"
+                          Placeholder="https://dev.azure.com/myorg"
+                          Variant="Variant.Outlined"
+                          Disabled="@(_validating || _resolved is not null)"
+                          Immediate="true" />
+
+            <MudTextField @bind-Value="_pat"
+                          Label="Personal access token"
+                          InputType="InputType.Password"
+                          Variant="Variant.Outlined"
+                          Disabled="@(_validating || _resolved is not null)"
+                          Immediate="true" />
+
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+            }
+
+            @if (_resolved is not null)
+            {
+                <MudAlert Severity="Severity.Success" Dense="true">
+                    Connected as <strong>@_resolved.DisplayName</strong>
+                </MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@Cancel" Disabled="@_validating">Cancel</MudButton>
+        @if (_resolved is null)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="@(string.IsNullOrWhiteSpace(_pat) || string.IsNullOrWhiteSpace(_orgUrl) || _validating)"
+                       OnClick="@ValidateAsync">
+                @if (_validating) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> } else { <text>Connect</text> }
+            </MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@Save">
+                Save
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private string _pat = "";
+    private string _orgUrl = "";
+    private bool _validating = false;
+    private string? _error;
+    private MicrosoftAccountToken? _resolved;
+
+    private static readonly JsonSerializerOptions _jsonOpts = JsonSerializerOptions.Web;
+
+    private async Task ValidateAsync()
+    {
+        _validating = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            var orgUrl = _orgUrl.Trim().TrimEnd('/');
+            var basicAuth = Convert.ToBase64String(Encoding.ASCII.GetBytes($":{_pat.Trim()}"));
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Nexus/1.0");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Basic", basicAuth);
+
+            var connData = await client.GetFromJsonAsync<ConnectionDataDto>(
+                $"{orgUrl}/_apis/connectionData?connectOptions=1&api-version=7.2-preview.1", _jsonOpts);
+
+            if (connData?.AuthenticatedUser is null)
+            {
+                _error = "Invalid token — could not retrieve user identity.";
+                return;
+            }
+
+            _resolved = new MicrosoftAccountToken
+            {
+                PersonalAccessToken = _pat.Trim(),
+                OrgUrl = orgUrl,
+                Login = connData.AuthenticatedUser.SubjectDescriptor ?? connData.AuthenticatedUser.ProviderDisplayName,
+                DisplayName = connData.AuthenticatedUser.ProviderDisplayName
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "ADO PAT validation failed");
+            _error = $"Could not connect: {ex.Message}";
+        }
+        finally
+        {
+            _validating = false;
+        }
+    }
+
+    private void Save() => MudDialog.Close(DialogResult.Ok(_resolved));
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private record ConnectionDataDto(
+        [property: JsonPropertyName("authenticatedUser")] ConnectionUserDto? AuthenticatedUser);
+
+    private record ConnectionUserDto(
+        [property: JsonPropertyName("providerDisplayName")] string ProviderDisplayName,
+        [property: JsonPropertyName("subjectDescriptor")] string? SubjectDescriptor);
+}
