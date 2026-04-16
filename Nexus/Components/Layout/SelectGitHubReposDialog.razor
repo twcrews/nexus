@@ -152,7 +152,7 @@
                         @foreach (var repo in SearchAddedRepos)
                         {
                             var r = repo;
-                            <MudChip T="string" Size="Size.Small" Color="Color.Primary"
+                            <MudChip T="string" Size="Size.Small" Color="Color.Secondary"
                                      OnClose="@(_ => { _selected.Remove(r); StateHasChanged(); })">@r</MudChip>
                         }
                     </MudStack>
@@ -161,7 +161,7 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" OnClick="@Cancel">Skip</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="@Cancel">Cancel</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@SaveAsync" Disabled="@_loading">
             Save
         </MudButton>

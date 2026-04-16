@@ -3,11 +3,13 @@
         <MudText Typo="Typo.body2" Style="opacity:0.5;padding:1rem;">No work items.</MudText>
     </NoRecordsContent>
     <Columns>
-        <TemplateColumn T="WorkItem" Title="Type" SortBy="@(x => x.Type)">
+        <TemplateColumn T="WorkItem" Title="Type" SortBy="@(x => (int)x.Type)">
             <CellTemplate>
-                <MudChip T="string" Text="@SplitPascal(context.Item.Type)"
-                         Color="@TypeColor(context.Item.Type)"
-                         Variant="Variant.Filled" Size="Size.Small" />
+                <MudTooltip Text="@SplitPascal(context.Item.Type)" Placement="Placement.Right">
+                    <MudIcon Icon="@TypeIcon(context.Item.Type)"
+                             Color="@TypeColor(context.Item.Type)"
+                             Size="Size.Small" />
+                </MudTooltip>
             </CellTemplate>
         </TemplateColumn>
         <TemplateColumn T="WorkItem" Title="ID" SortBy="@(x => x.Id)">
@@ -82,13 +84,23 @@
         return sb.ToString();
     }
 
+    private static string TypeIcon(WorkItemType t) => t switch
+    {
+        WorkItemType.Bug       => Icons.Material.Filled.BugReport,
+        WorkItemType.Task      => Icons.Material.Filled.CheckBox,
+        WorkItemType.UserStory => Icons.Material.Filled.MenuBook,
+        WorkItemType.Feature   => Icons.Material.Filled.Star,
+        WorkItemType.Epic      => Icons.Material.Filled.Bolt,
+        _                      => Icons.Material.Filled.Circle,
+    };
+
     private static Color TypeColor(WorkItemType t) => t switch
     {
         WorkItemType.Bug       => Color.Error,
         WorkItemType.Task      => Color.Info,
-        WorkItemType.UserStory => Color.Primary,
-        WorkItemType.Feature   => Color.Success,
-        WorkItemType.Epic      => Color.Warning,
+        WorkItemType.UserStory => Color.Success,
+        WorkItemType.Feature   => Color.Warning,
+        WorkItemType.Epic      => Color.Tertiary,
         _                      => Color.Default,
     };
 
