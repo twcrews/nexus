@@ -1,9 +1,17 @@
+<style>
+    .ado-project-panels .mud-expand-panel {
+        border-top: 1px solid var(--mud-palette-divider) !important;
+    }
+    .ado-project-panels .mud-expand-panel:first-child {
+        border-top: none !important;
+    }
+</style>
 @using System.Net.Http.Headers
 @using System.Text
 @using System.Text.Json
 @using System.Text.Json.Serialization
 @inject SessionTokenStore TokenStore
-@inject IJSRuntime JS
+@inject ILogger<SelectAdoMonitoringDialog> Logger
 
 <MudDialog Style="max-height:85vh;">
     <DialogContent>
@@ -24,7 +32,7 @@
                 <MudText Typo="Typo.body2" Style="opacity:0.6;">
                     Check the projects you want to monitor for
                     <strong>@Token.DisplayName</strong>.
-                    Expand a project to choose repositories (for pull requests) and a team (for work items).
+                    Expand a project to choose repositories (for pull requests) and teams (for work items).
                 </MudText>
                 @if (_projects.Count == 0)
                 {
@@ -34,36 +42,31 @@
                 }
                 else
                 {
-                    <MudPaper Outlined="true" Style="max-height:480px;overflow-y:auto;">
-                        <MudExpansionPanels MultiExpansion="true" Elevation="0">
+                    <MudPaper Outlined="true" Style="overflow-y:auto;">
+                        <MudExpansionPanels Elevation="0" Class="ado-project-panels">
                             @foreach (var project in _projects)
                             {
                                 var p = project;
                                 var sel = GetOrCreateSelection(p.Name);
                                 var details = _projectDetails.TryGetValue(p.Name, out var d) ? d : null;
                                 <MudExpansionPanel Expanded="@sel.Expanded"
-                                                   ExpandedChanged="@((bool v) => OnProjectExpandedAsync(v, p.Name, sel))"
-                                                   Gutters="false">
+                                                   ExpandedChanged="@((bool v) => OnProjectExpandedAsync(v, p.Name, sel))">
                                     <TitleContent>
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2"
                                                   Style="padding: 4px 0;">
-                                            <MudCheckBox T="bool"
-                                                         Value="@sel.Included"
-                                                         ValueChanged="@(v => { sel.Included = v; if (v) sel.Expanded = true; StateHasChanged(); })"
-                                                         Dense="true"
-                                                         @onclick:stopPropagation="true" />
                                             <MudText Typo="Typo.body1">@p.Name</MudText>
-                                            @if (sel.Included)
+                                            @if (sel.RepoNames.Count > 0 || sel.TeamNames.Count > 0)
                                             {
                                                 <MudText Typo="Typo.caption" Style="opacity:0.5;">
-                                                    @(sel.RepoNames.Count) @(sel.RepoNames.Count == 1 ? "repo" : "repos")
-                                                    @if (sel.TeamNames.Count > 0) { <text>, @sel.TeamNames.Count @(sel.TeamNames.Count == 1 ? "team" : "teams")</text> }
+                                                    @if (sel.RepoNames.Count > 0) { <text>@(sel.RepoNames.Count) @(sel.RepoNames.Count == 1 ? "repo" : "repos")</text> }
+                                                    @if (sel.RepoNames.Count > 0 && sel.TeamNames.Count > 0) { <text>, </text> }
+                                                    @if (sel.TeamNames.Count > 0) { <text>@sel.TeamNames.Count @(sel.TeamNames.Count == 1 ? "team" : "teams")</text> }
                                                 </MudText>
                                             }
                                         </MudStack>
                                     </TitleContent>
                                     <ChildContent>
-                                        <MudStack Spacing="3" Style="padding:0.5rem 1rem 1rem 1rem;">
+                                        <MudStack Spacing="8" Style="padding:0.5rem 1rem 1rem 1rem;">
                                             @if (_projectErrors.TryGetValue(p.Name, out var projErr))
                                             {
                                                 <MudAlert Severity="Severity.Error" Dense="true">@projErr</MudAlert>
@@ -76,55 +79,111 @@
                                             {
                                                 @* Repos *@
                                                 <MudStack Spacing="1">
-                                                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Repositories (pull requests)</MudText>
+                                                    <MudText Typo="Typo.subtitle1">Repositories</MudText>
                                                     @if (details.Repos.Count == 0)
                                                     {
                                                         <MudText Typo="Typo.body2" Style="opacity:0.5;">No repositories found.</MudText>
                                                     }
                                                     else
                                                     {
-                                                        <MudPaper Outlined="true" Style="max-height:160px;overflow-y:auto;">
-                                                            <MudList T="string" Dense="true">
-                                                                @foreach (var repo in details.Repos)
+                                                        var allReposSelected = !details.Repos.Any(r => !sel.RepoNames.Contains(r));
+                                                        var remainingRepos = details.Repos.Where(r => !sel.RepoNames.Contains(r)).ToList();
+                                                        var availableRepos = remainingRepos.Where(r => FuzzyMatch(sel.RepoSearch, r)).ToList();
+                                                        @if (!allReposSelected && remainingRepos.Count > 1)
+                                                        {
+                                                            <MudTextField T="string" @bind-Value="sel.RepoSearch" Placeholder="Search repositories…"
+                                                                          Immediate="true" Clearable="true" Margin="Margin.Dense"
+                                                                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+                                                        }
+                                                        @if (availableRepos.Count > 0)
+                                                        {
+                                                            <MudPaper Outlined="true" Style="max-height:140px;overflow-y:auto;">
+                                                                <MudList T="string" Dense="true">
+                                                                    @foreach (var repo in availableRepos)
+                                                                    {
+                                                                        var repoName = repo;
+                                                                        <MudListItem T="string" Dense="true" Style="cursor:pointer;"
+                                                                                     OnClick="@(() => { sel.RepoNames.Add(repoName); StateHasChanged(); })">
+                                                                            @repoName
+                                                                        </MudListItem>
+                                                                    }
+                                                                </MudList>
+                                                            </MudPaper>
+                                                        }
+                                                        else if (allReposSelected)
+                                                        {
+                                                            <MudText Typo="Typo.body2" Style="opacity:0.5;">All repositories selected.</MudText>
+                                                        }
+                                                        else
+                                                        {
+                                                            <MudText Typo="Typo.body2" Style="opacity:0.5;">No matches.</MudText>
+                                                        }
+                                                        @if (sel.RepoNames.Count > 0)
+                                                        {
+                                                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Style="padding-top:2px;">
+                                                                @foreach (var repo in sel.RepoNames.ToList())
                                                                 {
                                                                     var repoName = repo;
-                                                                    <MudListItem T="string" Dense="true">
-                                                                        <MudCheckBox T="bool"
-                                                                                     Value="@sel.RepoNames.Contains(repoName)"
-                                                                                     ValueChanged="@(v => { if (v) sel.RepoNames.Add(repoName); else sel.RepoNames.Remove(repoName); StateHasChanged(); })"
-                                                                                     Dense="true"
-                                                                                     Label="@repoName" />
-                                                                    </MudListItem>
+                                                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary"
+                                                                             OnClose="@(_ => { sel.RepoNames.Remove(repoName); StateHasChanged(); })">@repoName</MudChip>
                                                                 }
-                                                            </MudList>
-                                                        </MudPaper>
+                                                            </MudStack>
+                                                        }
                                                     }
                                                 </MudStack>
 
                                                 @* Teams *@
                                                 <MudStack Spacing="1">
-                                                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Teams (work items)</MudText>
+                                                    <MudText Typo="Typo.subtitle1">Teams (work items)</MudText>
                                                     @if (details.Teams.Count == 0)
                                                     {
                                                         <MudText Typo="Typo.body2" Style="opacity:0.5;">No teams found.</MudText>
                                                     }
                                                     else
                                                     {
-                                                        <MudPaper Outlined="true" Style="max-height:160px;overflow-y:auto;">
-                                                            <MudList T="string" Dense="true">
-                                                                @foreach (var team in details.Teams)
+                                                        var allTeamsSelected = !details.Teams.Any(t => !sel.TeamNames.Contains(t));
+                                                        var remainingTeams = details.Teams.Where(t => !sel.TeamNames.Contains(t)).ToList();
+                                                        var availableTeams = remainingTeams.Where(t => FuzzyMatch(sel.TeamSearch, t)).ToList();
+                                                        @if (!allTeamsSelected && remainingTeams.Count > 1)
+                                                        {
+                                                            <MudTextField T="string" @bind-Value="sel.TeamSearch" Placeholder="Search teams…"
+                                                                          Immediate="true" Clearable="true" Margin="Margin.Dense"
+                                                                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+                                                        }
+                                                        @if (availableTeams.Count > 0)
+                                                        {
+                                                            <MudPaper Outlined="true" Style="max-height:140px;overflow-y:auto;">
+                                                                <MudList T="string" Dense="true">
+                                                                    @foreach (var team in availableTeams)
+                                                                    {
+                                                                        var teamName = team;
+                                                                        <MudListItem T="string" Dense="true" Style="cursor:pointer;"
+                                                                                     OnClick="@(() => { sel.TeamNames.Add(teamName); StateHasChanged(); })">
+                                                                            @teamName
+                                                                        </MudListItem>
+                                                                    }
+                                                                </MudList>
+                                                            </MudPaper>
+                                                        }
+                                                        else if (allTeamsSelected)
+                                                        {
+                                                            <MudText Typo="Typo.body2" Style="opacity:0.5;">All teams selected.</MudText>
+                                                        }
+                                                        else
+                                                        {
+                                                            <MudText Typo="Typo.body2" Style="opacity:0.5;">No matches.</MudText>
+                                                        }
+                                                        @if (sel.TeamNames.Count > 0)
+                                                        {
+                                                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Style="padding-top:2px;">
+                                                                @foreach (var team in sel.TeamNames.ToList())
                                                                 {
                                                                     var teamName = team;
-                                                                    <MudListItem T="string" Dense="true">
-                                                                        <MudCheckBox T="bool"
-                                                                                     Value="@sel.TeamNames.Contains(teamName)"
-                                                                                     ValueChanged="@(v => { if (v) sel.TeamNames.Add(teamName); else sel.TeamNames.Remove(teamName); StateHasChanged(); })"
-                                                                                     Dense="true"
-                                                                                     Label="@teamName" />
-                                                                    </MudListItem>
+                                                                    <MudChip T="string" Size="Size.Small" Color="Color.Secondary"
+                                                                             OnClose="@(_ => { sel.TeamNames.Remove(teamName); StateHasChanged(); })">@teamName</MudChip>
                                                                 }
-                                                            </MudList>
-                                                        </MudPaper>
+                                                            </MudStack>
+                                                        }
                                                     }
                                                 </MudStack>
                                             }
@@ -139,10 +198,10 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" OnClick="@Cancel">@(_loading ? "Cancel" : "Skip")</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="@Cancel">Cancel</MudButton>
         @if (!_loading && _error is null)
         {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+            <MudButton Variant="Variant.Text" Color="Color.Primary"
                        Disabled="@_saving"
                        OnClick="@SaveAsync">
                 @if (_saving) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> } else { <text>Save</text> }
@@ -181,6 +240,7 @@
         {
             _loading = false;
         }
+
     }
 
     private string BasicAuthHeader =>
@@ -195,7 +255,8 @@
         return client;
     }
 
-    private async Task LoadProjectsAsync()
+
+private async Task LoadProjectsAsync()
     {
         var orgUrl = Token.OrgUrl.TrimEnd('/');
         using var client = CreateAdoClient();
@@ -208,7 +269,6 @@
             .Where(p => p.OrgUrl.TrimEnd('/').Equals(orgUrl, StringComparison.OrdinalIgnoreCase)))
         {
             var sel = GetOrCreateSelection(existing.ProjectName);
-            sel.Included = true;
             sel.RepoNames = [..existing.RepoNames];
             sel.TeamNames = [..existing.TeamNames];
         }
@@ -216,7 +276,7 @@
 
     private async Task OnProjectExpandedAsync(bool expanded, string projectName, ProjectSelection sel)
     {
-        await JS.InvokeVoidAsync("console.log", $"[Nexus] OnProjectExpandedAsync: project={projectName}, expanded={expanded}");
+        Logger.LogInformation("[Nexus] OnProjectExpandedAsync: project={Project}, expanded={Expanded}", projectName, expanded);
         sel.Expanded = expanded;
         if (expanded)
         {
@@ -226,21 +286,21 @@
             }
             catch (Exception ex)
             {
-                await JS.InvokeVoidAsync("console.error", $"[Nexus] OnProjectExpandedAsync caught exception for {projectName}: {ex.GetType().Name}: {ex.Message}");
+                Logger.LogError(ex, "[Nexus] OnProjectExpandedAsync failed for {Project}", projectName);
                 _projectErrors[projectName] = $"Failed to load project details: {ex.Message}";
             }
         }
-        await JS.InvokeVoidAsync("console.log", $"[Nexus] OnProjectExpandedAsync done: project={projectName}, calling StateHasChanged");
+        Logger.LogInformation("[Nexus] OnProjectExpandedAsync done: project={Project}", projectName);
         StateHasChanged();
     }
 
     private async Task LoadProjectDetailsAsync(string projectName)
     {
-        await JS.InvokeVoidAsync("console.log", $"[Nexus] LoadProjectDetailsAsync start: project={projectName}");
+        Logger.LogInformation("[Nexus] LoadProjectDetailsAsync start: project={Project}", projectName);
 
         if (_projectDetails.ContainsKey(projectName))
         {
-            await JS.InvokeVoidAsync("console.log", $"[Nexus] LoadProjectDetailsAsync: already cached, returning early");
+            Logger.LogInformation("[Nexus] LoadProjectDetailsAsync: already cached, returning early");
             return;
         }
 
@@ -248,36 +308,27 @@
         var reposUrl = $"{orgUrl}/{Uri.EscapeDataString(projectName)}/_apis/git/repositories?api-version=7.1";
         var teamsUrl = $"{orgUrl}/_apis/projects/{Uri.EscapeDataString(projectName)}/teams?api-version=7.1";
 
-        await JS.InvokeVoidAsync("console.log", $"[Nexus] Fetching repos: {reposUrl}");
-        await JS.InvokeVoidAsync("console.log", $"[Nexus] Fetching teams: {teamsUrl}");
+        Logger.LogInformation("[Nexus] Fetching repos: {Url}", reposUrl);
+        Logger.LogInformation("[Nexus] Fetching teams: {Url}", teamsUrl);
 
         using var client = CreateAdoClient();
 
         var reposTask = client.GetFromJsonAsync<AdoListDto<AdoRepoDto>>(reposUrl, _jsonOpts);
         var teamsTask = client.GetFromJsonAsync<AdoListDto<AdoTeamDto>>(teamsUrl, _jsonOpts);
 
-        await JS.InvokeVoidAsync("console.log", "[Nexus] Awaiting Task.WhenAll for repos and teams...");
         await Task.WhenAll(reposTask, teamsTask);
-        await JS.InvokeVoidAsync("console.log", "[Nexus] Task.WhenAll completed");
 
         var reposResult = await reposTask;
         var teamsResult = await teamsTask;
 
-        await JS.InvokeVoidAsync("console.log", $"[Nexus] Repos result: count={reposResult?.Value?.Count ?? -1}");
-        await JS.InvokeVoidAsync("console.log", $"[Nexus] Teams result: count={teamsResult?.Value?.Count ?? -1}");
+        Logger.LogInformation("[Nexus] Repos result: count={Count}", reposResult?.Value?.Count ?? -1);
+        Logger.LogInformation("[Nexus] Teams result: count={Count}", teamsResult?.Value?.Count ?? -1);
 
         var repos = reposResult?.Value?.Select(r => r.Name).OrderBy(n => n).ToList() ?? [];
         var teams = teamsResult?.Value?.Select(t => t.Name).OrderBy(n => n).ToList() ?? [];
 
-        if (teams.Count == 1)
-        {
-            var sel = GetOrCreateSelection(projectName);
-            if (sel.TeamNames.Count == 0)
-                sel.TeamNames.Add(teams[0]);
-        }
-
         _projectDetails[projectName] = new ProjectDetails(repos, teams);
-        await JS.InvokeVoidAsync("console.log", $"[Nexus] LoadProjectDetailsAsync done: project={projectName}, repos={repos.Count}, teams={teams.Count}");
+        Logger.LogInformation("[Nexus] LoadProjectDetailsAsync done: project={Project}, repos={Repos}, teams={Teams}", projectName, repos.Count, teams.Count);
         StateHasChanged();
     }
 
@@ -287,7 +338,7 @@
 
         var orgUrl = Token.OrgUrl.TrimEnd('/');
         var newProjects = _selections.Values
-            .Where(s => s.Included)
+            .Where(s => s.RepoNames.Count > 0 || s.TeamNames.Count > 0)
             .Select(s => new AdoMonitoredProject
             {
                 OrgUrl = orgUrl,
@@ -323,10 +374,23 @@
     private class ProjectSelection(string projectName)
     {
         public string ProjectName { get; } = projectName;
-        public bool Included { get; set; }
         public bool Expanded { get; set; }
         public HashSet<string> RepoNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> TeamNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public string RepoSearch { get; set; } = "";
+        public string TeamSearch { get; set; } = "";
+    }
+
+    private static bool FuzzyMatch(string query, string target)
+    {
+        if (string.IsNullOrEmpty(query)) return true;
+        int qi = 0;
+        foreach (char tc in target)
+        {
+            if (char.ToLowerInvariant(tc) == char.ToLowerInvariant(query[qi]))
+                if (++qi == query.Length) return true;
+        }
+        return false;
     }
 
     private record ProjectDetails(List<string> Repos, List<string> Teams);

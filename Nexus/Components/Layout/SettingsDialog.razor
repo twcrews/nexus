@@ -3,6 +3,14 @@
 
 <MudDialog>
     <DialogContent>
+        <MudMessageBox @ref="_unlinkConfirm" Title="Unlink account" CancelText="Cancel">
+            <MessageContent>
+                Are you sure you want to unlink <strong>@_unlinkTarget</strong>? This can't be undone.
+            </MessageContent>
+            <YesButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Error">Unlink</MudButton>
+            </YesButton>
+        </MudMessageBox>
         <MudStack Spacing="4" Style="min-width:320px;padding:0.5rem 0;">
 
             <MudStack Spacing="1">
@@ -36,36 +44,19 @@
                 }
                 else
                 {
-                    @if (accounts.DummyAccounts.Count > 0)
-                    {
-                        @foreach (var account in accounts.DummyAccounts)
-                        {
-                            var name = account.AccountName;
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudIcon Icon="@Icons.Material.Filled.DeveloperBoard" Size="Size.Small" Style="opacity:0.5;" />
-                                    <MudText Typo="Typo.body1">@name</MudText>
-                                </MudStack>
-                                <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
-                                               Size="Size.Small"
-                                               Color="Color.Error"
-                                               OnClick="@(() => RemoveDummyAsync(name))" />
-                            </MudStack>
-                        }
-                    }
                     @if (accounts.GitHubAccounts.Count > 0)
                     {
                         @foreach (var account in accounts.GitHubAccounts)
                         {
                             var login = account.Login;
                             var repoCount = account.MonitoredRepos.Count;
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="padding: 4px 0;">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                                     <MudIcon Icon="@Icons.Custom.Brands.GitHub" Size="Size.Small" Style="opacity:0.5;" />
-                                    <MudStack Spacing="0">
-                                        <MudText Typo="Typo.body1">@account.DisplayName (@login)</MudText>
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                        <MudText Typo="Typo.body1">@login</MudText>
                                         <MudText Typo="Typo.caption" Style="opacity:0.5;">
-                                            @(repoCount == 0 ? "No repositories" : $"{repoCount} {(repoCount == 1 ? "repository" : "repositories")}")
+                                            @(repoCount == 0 ? "No repos" : $"{repoCount} {(repoCount == 1 ? "repo" : "repos")}")
                                         </MudText>
                                     </MudStack>
                                 </MudStack>
@@ -75,10 +66,12 @@
                                                        Size="Size.Small"
                                                        OnClick="@(() => ConfigureReposAsync(account))" />
                                     </MudTooltip>
-                                    <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
-                                                   Size="Size.Small"
-                                                   Color="Color.Error"
-                                                   OnClick="@(() => RemoveGitHubAsync(login))" />
+                                    <MudTooltip Text="Unlink account">
+                                        <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                                       Size="Size.Small"
+                                                       Color="Color.Error"
+                                                       OnClick="@(() => RemoveGitHubAsync(login, account.DisplayName))" />
+                                    </MudTooltip>
                                 </MudStack>
                             </MudStack>
                         }
@@ -89,10 +82,10 @@
                         {
                             var login = account.Login;
                             var projectCount = account.MonitoredProjects.Count;
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="padding: 4px 0;">
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                     <MudIcon Icon="@Icons.Custom.Brands.MicrosoftAzure" Size="Size.Small" Style="opacity:0.5;" />
-                                    <MudStack Spacing="0">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                                         <MudText Typo="Typo.body1">@account.DisplayName</MudText>
                                         <MudText Typo="Typo.caption" Style="opacity:0.5;">
                                             @(projectCount == 0 ? "No projects" : $"{projectCount} {(projectCount == 1 ? "project" : "projects")}")
@@ -105,15 +98,21 @@
                                                        Size="Size.Small"
                                                        OnClick="@(() => ConfigureAdoAsync(account))" />
                                     </MudTooltip>
-                                    <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
-                                                   Size="Size.Small"
-                                                   Color="Color.Error"
-                                                   OnClick="@(() => RemoveMicrosoftAsync(login))" />
+                                    <MudTooltip Text="Unlink account">
+                                        <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                                       Size="Size.Small"
+                                                       Color="Color.Error"
+                                                       OnClick="@(() => RemoveMicrosoftAsync(login, account.DisplayName))" />
+                                    </MudTooltip>
                                 </MudStack>
                             </MudStack>
                         }
                     }
                 }
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Custom.Brands.GitHub" OnClick="@ConnectGitHubAsync">Link GitHub</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Custom.Brands.MicrosoftAzure" OnClick="@ConnectMicrosoftAsync">Link Azure DevOps</MudButton>
+                </MudStack>
                 <MudText Typo="Typo.caption" Style="opacity:0.6;">
                     Account tokens are stored encrypted in your browser's local storage. No data is ever stored on the server or shared.
                 </MudText>
@@ -123,12 +122,6 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="@MudDialog.Cancel">Close</MudButton>
-        <MudMenu Label="Connect account" Variant="Variant.Filled" Color="Color.Primary"
-                 StartIcon="@Icons.Material.Filled.Add" EndIcon="@Icons.Material.Filled.ArrowDropDown">
-            <MudMenuItem OnClick="@AddDummyAccountAsync">Dummy account</MudMenuItem>
-            <MudMenuItem OnClick="@ConnectGitHubAsync">GitHub</MudMenuItem>
-            <MudMenuItem OnClick="@ConnectMicrosoftAsync">Azure DevOps</MudMenuItem>
-        </MudMenu>
     </DialogActions>
 </MudDialog>
 
@@ -138,6 +131,8 @@
     [Parameter] public Action<ThemePreference> ThemePreferenceChanged { get; set; } = default!;
 
     private ThemePreference _themePreference;
+    private MudMessageBox _unlinkConfirm = default!;
+    private string _unlinkTarget = "";
 
     protected override void OnParametersSet() => _themePreference = ThemePreference;
 
@@ -153,8 +148,10 @@
         StateHasChanged();
     }
 
-    private async Task RemoveGitHubAsync(string login)
+    private async Task RemoveGitHubAsync(string login, string displayName)
     {
+        _unlinkTarget = displayName;
+        if (await _unlinkConfirm.ShowAsync() is not true) return;
         await TokenStore.UnlinkGitHubAccountAsync(login);
         StateHasChanged();
     }
@@ -242,8 +239,10 @@
         await DialogService.ShowAsync<SelectAdoMonitoringDialog>("Configure Azure DevOps", parameters, options);
     }
 
-    private async Task RemoveMicrosoftAsync(string login)
+    private async Task RemoveMicrosoftAsync(string login, string displayName)
     {
+        _unlinkTarget = displayName;
+        if (await _unlinkConfirm.ShowAsync() is not true) return;
         await TokenStore.UnlinkMicrosoftAccountAsync(login);
         StateHasChanged();
     }

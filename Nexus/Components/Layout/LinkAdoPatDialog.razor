@@ -12,18 +12,20 @@
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.subtitle1"><strong>Azure DevOps</strong></MudText>
                     <MudText Typo="Typo.body2" Style="opacity:0.6;">
-                        Enter your organization URL and a personal access token with
+                        Enter your organization name and a personal access token with
                         <code>Work Items (Read)</code> and <code>Code (Read)</code> scopes.
                     </MudText>
                 </MudStack>
             </MudStack>
 
-            <MudTextField @bind-Value="_orgUrl"
-                          Label="Organization URL"
-                          Placeholder="https://dev.azure.com/myorg"
+            <MudTextField @bind-Value="_orgName"
+                          Label="Organization name"
+                          Placeholder="myorg"
                           Variant="Variant.Outlined"
                           Disabled="@(_validating || _resolved is not null)"
-                          Immediate="true" />
+                          Immediate="true"
+                          Adornment="Adornment.Start"
+                          AdornmentText="dev.azure.com/" />
 
             <MudTextField @bind-Value="_pat"
                           Label="Personal access token"
@@ -50,7 +52,7 @@
         @if (_resolved is null)
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                       Disabled="@(string.IsNullOrWhiteSpace(_pat) || string.IsNullOrWhiteSpace(_orgUrl) || _validating)"
+                       Disabled="@(string.IsNullOrWhiteSpace(_pat) || string.IsNullOrWhiteSpace(_orgName) || _validating)"
                        OnClick="@ValidateAsync">
                 @if (_validating) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> } else { <text>Connect</text> }
             </MudButton>
@@ -68,7 +70,7 @@
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
 
     private string _pat = "";
-    private string _orgUrl = "";
+    private string _orgName = "";
     private bool _validating = false;
     private string? _error;
     private MicrosoftAccountToken? _resolved;
@@ -83,7 +85,7 @@
 
         try
         {
-            var orgUrl = _orgUrl.Trim().TrimEnd('/');
+            var orgUrl = $"https://dev.azure.com/{_orgName.Trim().Trim('/')}";
             var basicAuth = Convert.ToBase64String(Encoding.ASCII.GetBytes($":{_pat.Trim()}"));
             using var client = new HttpClient();
             client.DefaultRequestHeaders.UserAgent.ParseAdd("Nexus/1.0");
