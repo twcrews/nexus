@@ -3,6 +3,7 @@
 @using System.Text.Json
 @using System.Text.Json.Serialization
 @inject SessionTokenStore TokenStore
+@inject IJSRuntime JS
 
 <MudDialog Style="max-height:85vh;">
     <DialogContent>
@@ -40,9 +41,9 @@
                                 var p = project;
                                 var sel = GetOrCreateSelection(p.Name);
                                 var details = _projectDetails.TryGetValue(p.Name, out var d) ? d : null;
-                                <MudExpansionPanel IsExpanded="@sel.Expanded"
-                                                   IsExpandedChanged="@((bool v) => OnProjectExpandedAsync(v, p.Name, sel))"
-                                                   DisableGutters="true">
+                                <MudExpansionPanel Expanded="@sel.Expanded"
+                                                   ExpandedChanged="@((bool v) => OnProjectExpandedAsync(v, p.Name, sel))"
+                                                   Gutters="false">
                                     <TitleContent>
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2"
                                                   Style="padding: 4px 0;">
@@ -56,14 +57,18 @@
                                             {
                                                 <MudText Typo="Typo.caption" Style="opacity:0.5;">
                                                     @(sel.RepoNames.Count) @(sel.RepoNames.Count == 1 ? "repo" : "repos")
-                                                    @if (sel.TeamName is not null) { <text>, @sel.TeamName</text> }
+                                                    @if (sel.TeamNames.Count > 0) { <text>, @sel.TeamNames.Count @(sel.TeamNames.Count == 1 ? "team" : "teams")</text> }
                                                 </MudText>
                                             }
                                         </MudStack>
                                     </TitleContent>
                                     <ChildContent>
                                         <MudStack Spacing="3" Style="padding:0.5rem 1rem 1rem 1rem;">
-                                            @if (details is null)
+                                            @if (_projectErrors.TryGetValue(p.Name, out var projErr))
+                                            {
+                                                <MudAlert Severity="Severity.Error" Dense="true">@projErr</MudAlert>
+                                            }
+                                            else if (details is null)
                                             {
                                                 <MudProgressLinear Indeterminate="true" />
                                             }
@@ -98,31 +103,28 @@
 
                                                 @* Teams *@
                                                 <MudStack Spacing="1">
-                                                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Team (work items)</MudText>
+                                                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Teams (work items)</MudText>
                                                     @if (details.Teams.Count == 0)
                                                     {
                                                         <MudText Typo="Typo.body2" Style="opacity:0.5;">No teams found.</MudText>
                                                     }
-                                                    else if (details.Teams.Count == 1)
-                                                    {
-                                                        @* Single team is auto-selected in LoadProjectDetailsAsync *@
-                                                        <MudText Typo="Typo.body2">@details.Teams[0]</MudText>
-                                                    }
                                                     else
                                                     {
-                                                        <MudSelect T="string"
-                                                                   Value="@sel.TeamName"
-                                                                   ValueChanged="@(v => { sel.TeamName = v; StateHasChanged(); })"
-                                                                   Placeholder="None (skip work items)"
-                                                                   Clearable="true"
-                                                                   Variant="Variant.Outlined"
-                                                                   Dense="true"
-                                                                   Margin="Margin.Dense">
-                                                            @foreach (var team in details.Teams)
-                                                            {
-                                                                <MudSelectItem Value="@team">@team</MudSelectItem>
-                                                            }
-                                                        </MudSelect>
+                                                        <MudPaper Outlined="true" Style="max-height:160px;overflow-y:auto;">
+                                                            <MudList T="string" Dense="true">
+                                                                @foreach (var team in details.Teams)
+                                                                {
+                                                                    var teamName = team;
+                                                                    <MudListItem T="string" Dense="true">
+                                                                        <MudCheckBox T="bool"
+                                                                                     Value="@sel.TeamNames.Contains(teamName)"
+                                                                                     ValueChanged="@(v => { if (v) sel.TeamNames.Add(teamName); else sel.TeamNames.Remove(teamName); StateHasChanged(); })"
+                                                                                     Dense="true"
+                                                                                     Label="@teamName" />
+                                                                    </MudListItem>
+                                                                }
+                                                            </MudList>
+                                                        </MudPaper>
                                                     }
                                                 </MudStack>
                                             }
@@ -161,6 +163,7 @@
     private List<AdoProjectDto> _projects = [];
     private Dictionary<string, ProjectSelection> _selections = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, ProjectDetails> _projectDetails = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _projectErrors = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions _jsonOpts = JsonSerializerOptions.Web;
 
@@ -207,41 +210,74 @@
             var sel = GetOrCreateSelection(existing.ProjectName);
             sel.Included = true;
             sel.RepoNames = [..existing.RepoNames];
-            sel.TeamName = existing.TeamName;
+            sel.TeamNames = [..existing.TeamNames];
         }
     }
 
     private async Task OnProjectExpandedAsync(bool expanded, string projectName, ProjectSelection sel)
     {
+        await JS.InvokeVoidAsync("console.log", $"[Nexus] OnProjectExpandedAsync: project={projectName}, expanded={expanded}");
         sel.Expanded = expanded;
-        if (expanded) await LoadProjectDetailsAsync(projectName);
+        if (expanded)
+        {
+            try
+            {
+                await LoadProjectDetailsAsync(projectName);
+            }
+            catch (Exception ex)
+            {
+                await JS.InvokeVoidAsync("console.error", $"[Nexus] OnProjectExpandedAsync caught exception for {projectName}: {ex.GetType().Name}: {ex.Message}");
+                _projectErrors[projectName] = $"Failed to load project details: {ex.Message}";
+            }
+        }
+        await JS.InvokeVoidAsync("console.log", $"[Nexus] OnProjectExpandedAsync done: project={projectName}, calling StateHasChanged");
         StateHasChanged();
     }
 
     private async Task LoadProjectDetailsAsync(string projectName)
     {
-        if (_projectDetails.ContainsKey(projectName)) return;
+        await JS.InvokeVoidAsync("console.log", $"[Nexus] LoadProjectDetailsAsync start: project={projectName}");
+
+        if (_projectDetails.ContainsKey(projectName))
+        {
+            await JS.InvokeVoidAsync("console.log", $"[Nexus] LoadProjectDetailsAsync: already cached, returning early");
+            return;
+        }
 
         var orgUrl = Token.OrgUrl.TrimEnd('/');
+        var reposUrl = $"{orgUrl}/{Uri.EscapeDataString(projectName)}/_apis/git/repositories?api-version=7.1";
+        var teamsUrl = $"{orgUrl}/_apis/projects/{Uri.EscapeDataString(projectName)}/teams?api-version=7.1";
+
+        await JS.InvokeVoidAsync("console.log", $"[Nexus] Fetching repos: {reposUrl}");
+        await JS.InvokeVoidAsync("console.log", $"[Nexus] Fetching teams: {teamsUrl}");
+
         using var client = CreateAdoClient();
 
-        var reposTask = client.GetFromJsonAsync<AdoListDto<AdoRepoDto>>(
-            $"{orgUrl}/{Uri.EscapeDataString(projectName)}/_apis/git/repositories?api-version=7.1", _jsonOpts);
-        var teamsTask = client.GetFromJsonAsync<AdoListDto<AdoTeamDto>>(
-            $"{orgUrl}/_apis/projects/{Uri.EscapeDataString(projectName)}/teams?api-version=7.1", _jsonOpts);
+        var reposTask = client.GetFromJsonAsync<AdoListDto<AdoRepoDto>>(reposUrl, _jsonOpts);
+        var teamsTask = client.GetFromJsonAsync<AdoListDto<AdoTeamDto>>(teamsUrl, _jsonOpts);
 
+        await JS.InvokeVoidAsync("console.log", "[Nexus] Awaiting Task.WhenAll for repos and teams...");
         await Task.WhenAll(reposTask, teamsTask);
+        await JS.InvokeVoidAsync("console.log", "[Nexus] Task.WhenAll completed");
 
-        var repos = (await reposTask)?.Value?.Select(r => r.Name).OrderBy(n => n).ToList() ?? [];
-        var teams = (await teamsTask)?.Value?.Select(t => t.Name).OrderBy(n => n).ToList() ?? [];
+        var reposResult = await reposTask;
+        var teamsResult = await teamsTask;
+
+        await JS.InvokeVoidAsync("console.log", $"[Nexus] Repos result: count={reposResult?.Value?.Count ?? -1}");
+        await JS.InvokeVoidAsync("console.log", $"[Nexus] Teams result: count={teamsResult?.Value?.Count ?? -1}");
+
+        var repos = reposResult?.Value?.Select(r => r.Name).OrderBy(n => n).ToList() ?? [];
+        var teams = teamsResult?.Value?.Select(t => t.Name).OrderBy(n => n).ToList() ?? [];
 
         if (teams.Count == 1)
         {
             var sel = GetOrCreateSelection(projectName);
-            sel.TeamName ??= teams[0];
+            if (sel.TeamNames.Count == 0)
+                sel.TeamNames.Add(teams[0]);
         }
 
         _projectDetails[projectName] = new ProjectDetails(repos, teams);
+        await JS.InvokeVoidAsync("console.log", $"[Nexus] LoadProjectDetailsAsync done: project={projectName}, repos={repos.Count}, teams={teams.Count}");
         StateHasChanged();
     }
 
@@ -257,7 +293,7 @@
                 OrgUrl = orgUrl,
                 ProjectName = s.ProjectName,
                 RepoNames = [..s.RepoNames],
-                TeamName = s.TeamName
+                TeamNames = [..s.TeamNames]
             })
             .ToList();
 
@@ -290,7 +326,7 @@
         public bool Included { get; set; }
         public bool Expanded { get; set; }
         public HashSet<string> RepoNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-        public string? TeamName { get; set; }
+        public HashSet<string> TeamNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private record ProjectDetails(List<string> Repos, List<string> Teams);

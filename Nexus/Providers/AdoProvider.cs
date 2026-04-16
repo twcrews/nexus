@@ -56,7 +56,7 @@ public class AdoProvider(
     private async Task<(List<Models.WorkItem> assigned, List<Models.WorkItem> unassigned)> FetchWorkItemsAsync(
         VssConnection connection, AdoMonitoredProject project)
     {
-        if (project.TeamName is null)
+        if (project.TeamNames.Count == 0)
             return ([], []);
 
         var client = await connection.GetClientAsync<WorkItemTrackingHttpClient>();

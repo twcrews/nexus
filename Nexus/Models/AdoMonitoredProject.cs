@@ -7,6 +7,6 @@ public class AdoMonitoredProject
     public string ProjectName { get; set; } = "";
     /// <summary>Git repo names to monitor for pull requests. Empty = no PR monitoring for this project.</summary>
     public List<string> RepoNames { get; set; } = [];
-    /// <summary>Team name for work item monitoring. Null = no work item monitoring for this project.</summary>
-    public string? TeamName { get; set; }
+    /// <summary>Team names for work item monitoring. Empty = no work item monitoring for this project.</summary>
+    public List<string> TeamNames { get; set; } = [];
 }
