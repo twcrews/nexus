@@ -1,4 +1,5 @@
 using Microsoft.TeamFoundation.SourceControl.WebApi;
+using Microsoft.TeamFoundation.Work.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using Microsoft.VisualStudio.Services.Common;
@@ -66,32 +67,53 @@ public class AdoProvider(
             "System.AssignedTo", "System.CreatedBy", "System.Tags"
         ];
 
-        var assignedWiql = new Wiql
-        {
-            Query = $"""
-                SELECT [System.Id] FROM WorkItems
-                WHERE [System.AssignedTo] = @Me
-                AND [System.TeamProject] = '{EscapeWiql(project.ProjectName)}'
-                AND [System.State] NOT IN ('Closed', 'Done', 'Removed', 'Resolved')
-                ORDER BY [System.ChangedDate] DESC
-                """
-        };
-        var unassignedWiql = new Wiql
-        {
-            Query = $"""
-                SELECT [System.Id] FROM WorkItems
-                WHERE [System.AssignedTo] = ''
-                AND [System.TeamProject] = '{EscapeWiql(project.ProjectName)}'
-                AND [System.State] NOT IN ('Closed', 'Done', 'Removed', 'Resolved')
-                ORDER BY [System.ChangedDate] DESC
-                """
-        };
+        var assignedIds = new HashSet<int>();
+        var unassignedIds = new HashSet<int>();
 
-        var assignedResult = await client.QueryByWiqlAsync(assignedWiql, top: 100);
-        var unassignedResult = await client.QueryByWiqlAsync(unassignedWiql, top: 100);
+        var workClient = await connection.GetClientAsync<WorkHttpClient>();
 
-        var assignedIds = assignedResult.WorkItems.Select(w => w.Id).ToList();
-        var unassignedIds = unassignedResult.WorkItems.Select(w => w.Id).ToList();
+        foreach (var teamName in project.TeamNames)
+        {
+            var teamContext = new Microsoft.TeamFoundation.Core.WebApi.Types.TeamContext(project.ProjectName, teamName);
+
+            var teamFieldValues = await workClient.GetTeamFieldValuesAsync(teamContext);
+            var areaFilter = BuildAreaPathFilter(teamFieldValues);
+
+            if (areaFilter is null)
+                continue;
+
+            var assignedWiql = new Wiql
+            {
+                Query = $"""
+                    SELECT [System.Id] FROM WorkItems
+                    WHERE [System.AssignedTo] = @Me
+                    AND [System.TeamProject] = '{EscapeWiql(project.ProjectName)}'
+                    AND {areaFilter}
+                    AND [System.State] NOT IN ('Closed', 'Done', 'Removed', 'Resolved')
+                    ORDER BY [System.ChangedDate] DESC
+                    """
+            };
+            var unassignedWiql = new Wiql
+            {
+                Query = $"""
+                    SELECT [System.Id] FROM WorkItems
+                    WHERE [System.AssignedTo] = ''
+                    AND [System.TeamProject] = '{EscapeWiql(project.ProjectName)}'
+                    AND {areaFilter}
+                    AND [System.State] NOT IN ('Closed', 'Done', 'Removed', 'Resolved')
+                    ORDER BY [System.ChangedDate] DESC
+                    """
+            };
+
+            var assignedResult = await client.QueryByWiqlAsync(assignedWiql, top: 100);
+            var unassignedResult = await client.QueryByWiqlAsync(unassignedWiql, top: 100);
+
+            foreach (var w in assignedResult.WorkItems) assignedIds.Add(w.Id);
+            foreach (var w in unassignedResult.WorkItems) unassignedIds.Add(w.Id);
+        }
+
+        // Items assigned to someone shouldn't appear in the unassigned list
+        unassignedIds.ExceptWith(assignedIds);
 
         var assignedDetails = assignedIds.Count > 0
             ? await client.GetWorkItemsAsync(assignedIds, fields)
@@ -101,8 +123,8 @@ public class AdoProvider(
             : [];
 
         return (
-            assignedDetails.Select(MapWorkItem).ToList(),
-            unassignedDetails.Select(MapWorkItem).ToList()
+            assignedDetails.Select(wi => MapWorkItem(wi, project.OrgUrl, project.ProjectName)).ToList(),
+            unassignedDetails.Select(wi => MapWorkItem(wi, project.OrgUrl, project.ProjectName)).ToList()
         );
     }
 
@@ -145,7 +167,7 @@ public class AdoProvider(
         return (assigned, unassigned);
     }
 
-    private static Models.WorkItem MapWorkItem(Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models.WorkItem wi)
+    private static Models.WorkItem MapWorkItem(Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models.WorkItem wi, string orgUrl, string projectName)
     {
         string? Get(string field) => wi.Fields.TryGetValue(field, out var v) ? v?.ToString() : null;
 
@@ -183,6 +205,10 @@ public class AdoProvider(
         var updated = wi.Fields.TryGetValue("System.ChangedDate", out var ud) && ud is DateTime udt
             ? new DateTimeOffset(udt) : DateTimeOffset.MinValue;
 
+        string? url = wi.Id is int id
+            ? $"{orgUrl.TrimEnd('/')}/{Uri.EscapeDataString(projectName)}/_workitems/edit/{id}"
+            : null;
+
         return new Models.WorkItem(
             Id: wi.Id?.ToString() ?? "",
             Type: type,
@@ -193,7 +219,8 @@ public class AdoProvider(
             Status: status,
             CreatedAt: created,
             UpdatedAt: updated,
-            Labels: tags);
+            Labels: tags,
+            Url: url);
     }
 
     private static Models.PullRequest MapPullRequest(GitPullRequest pr, string repoName)
@@ -223,6 +250,20 @@ public class AdoProvider(
             Status: status,
             CreatedAt: pr.CreationDate,
             UpdatedAt: pr.CreationDate);
+    }
+
+    private static string? BuildAreaPathFilter(TeamFieldValues teamFieldValues)
+    {
+        var values = teamFieldValues?.Values?.ToList();
+        if (values is not { Count: > 0 })
+            return null;
+
+        var conditions = values.Select(v =>
+            v.IncludeChildren
+                ? $"[System.AreaPath] UNDER '{EscapeWiql(v.Value)}'"
+                : $"[System.AreaPath] = '{EscapeWiql(v.Value)}'");
+
+        return $"({string.Join(" OR ", conditions)})";
     }
 
     private static string EscapeWiql(string value) => value.Replace("'", "''");

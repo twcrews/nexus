@@ -14,5 +14,6 @@ public record WorkItem(
     WorkItemStatus Status,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<string> Labels
+    IReadOnlyList<string> Labels,
+    string? Url = null
 );

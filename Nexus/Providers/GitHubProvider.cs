@@ -83,7 +83,7 @@ public class GitHubProvider(
         var repoFragment = """
             issues(first: 100, states: [OPEN]) {
               nodes {
-                number title body createdAt updatedAt
+                number title body url createdAt updatedAt
                 author { login avatarUrl ... on User { name } }
                 assignees(first: 20) { nodes { login avatarUrl name } }
                 labels(first: 20) { nodes { name } }
@@ -167,7 +167,8 @@ public class GitHubProvider(
             Status: WorkItemStatus.Active,
             CreatedAt: node.CreatedAt,
             UpdatedAt: node.UpdatedAt,
-            Labels: node.Labels.Nodes.Select(l => l.Name).ToList()
+            Labels: node.Labels.Nodes.Select(l => l.Name).ToList(),
+            Url: node.Url
         );
 
         return new MappedIssue(workItem, firstAssignee?.Login);
@@ -250,6 +251,7 @@ internal record GqlIssue(
     [property: JsonPropertyName("number")] int Number,
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("body")] string? Body,
+    [property: JsonPropertyName("url")] string? Url,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
     [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
     [property: JsonPropertyName("author")] GqlActor? Author,

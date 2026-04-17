@@ -1,9 +1,12 @@
-<MudDataGrid Elevation="0" Class="bordered" T="WorkItem" Items="@_items" SortMode="SortMode.Multiple" Hover="true" Dense="true">
+@inject IJSRuntime JS
+
+<MudDataGrid Elevation="0" Class="bordered" T="WorkItem" Items="@_items" Hover="true" Dense="true" SortMode="SortMode.Single"
+             RowClick="@OnRowClick" RowStyleFunc="@((item, _) => item.Url is not null ? "cursor:pointer;" : null)">
     <NoRecordsContent>
         <MudText Typo="Typo.body2" Style="opacity:0.5;padding:1rem;">No work items.</MudText>
     </NoRecordsContent>
     <Columns>
-        <TemplateColumn T="WorkItem" Title="Type" SortBy="@(x => (int)x.Type)">
+        <PropertyColumn Property="x => (int)x.Type" Title="Type">
             <CellTemplate>
                 <MudTooltip Text="@SplitPascal(context.Item.Type)" Placement="Placement.Right">
                     <MudIcon Icon="@TypeIcon(context.Item.Type)"
@@ -11,15 +14,15 @@
                              Size="Size.Small" />
                 </MudTooltip>
             </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn T="WorkItem" Title="ID" SortBy="@(x => x.Id)">
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.Id" Title="ID">
             <CellTemplate>
                 <span style="font-size:0.75rem;font-family:'JetBrains Mono',monospace;opacity:0.6;">
                     @context.Item.Id
                 </span>
             </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn T="WorkItem" Title="Title" SortBy="@(x => x.Title)">
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.Title" Title="Title">
             <CellTemplate>
                 <MudStack Spacing="1">
                     <ScrollText>@context.Item.Title</ScrollText>
@@ -36,10 +39,10 @@
                     }
                 </MudStack>
             </CellTemplate>
-        </TemplateColumn>
+        </PropertyColumn>
         @if (ShowAssignee)
         {
-            <TemplateColumn T="WorkItem" Title="Assignee" Sortable="false">
+            <PropertyColumn Property="x => x.Assignee != null ? x.Assignee.Name : null" Title="Assignee">
                 <CellTemplate>
                     @if (context.Item.Assignee is not null)
                     {
@@ -50,20 +53,20 @@
                         <span style="opacity:0.35;">—</span>
                     }
                 </CellTemplate>
-            </TemplateColumn>
+            </PropertyColumn>
         }
-        <TemplateColumn T="WorkItem" Title="Status" SortBy="@(x => x.Status)">
+        <PropertyColumn Property="x => x.Status" Title="Status">
             <CellTemplate>
                 <MudChip T="string" Text="@SplitPascal(context.Item.Status)"
                          Color="@StatusColor(context.Item.Status)"
                          Variant="Variant.Filled" Size="Size.Small" />
             </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn T="WorkItem" Title="Updated" SortBy="@(x => x.UpdatedAt)">
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.UpdatedAt" Title="Updated">
             <CellTemplate>
                 <span style="font-size:0.75rem;opacity:0.6;">@Relative(context.Item.UpdatedAt)</span>
             </CellTemplate>
-        </TemplateColumn>
+        </PropertyColumn>
     </Columns>
 </MudDataGrid>
 
@@ -72,6 +75,12 @@
     [Parameter] public bool ShowAssignee { get; set; } = true;
 
     private List<WorkItem> _items => Items?.ToList() ?? [];
+
+    private async Task OnRowClick(DataGridRowClickEventArgs<WorkItem> args)
+    {
+        if (args.Item?.Url is { } url)
+            await JS.InvokeVoidAsync("open", url, "_blank");
+    }
 
     private static string SplitPascal<T>(T value) where T : Enum
     {
