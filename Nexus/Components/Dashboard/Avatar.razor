@@ -1,0 +1,15 @@
+<MudTooltip Text="@User.DisplayName">
+    @if (!string.IsNullOrEmpty(User.AvatarUrl))
+    {
+        <img src="@User.AvatarUrl" alt="@User.Name"
+             style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;cursor:default;" />
+    }
+    else
+    {
+        <MudAvatar Size="Size.Small" Style="width:24px;height:24px;font-size:0.75rem;">@User.DisplayName[..1]</MudAvatar>
+    }
+</MudTooltip>
+
+@code {
+    [Parameter, EditorRequired] public UserReference User { get; set; } = null!;
+}

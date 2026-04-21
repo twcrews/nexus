@@ -4,7 +4,7 @@
 
 <MudDialog Style="max-height:85vh;">
     <DialogContent>
-        <MudStack Spacing="3" Style="min-width:480px;padding:0.5rem 0;">
+        <MudStack Spacing="3" Style="padding:0.5rem 0;">
             @if (_loading)
             {
                 <MudStack AlignItems="AlignItems.Center" Style="padding:2rem 0;">
@@ -16,7 +16,7 @@
             {
                 <MudText Typo="Typo.body2" Style="opacity:0.6;">
                     Choose which repositories Nexus will monitor for
-                    <strong>@Token.DisplayName</strong>. Leave all empty to monitor nothing.
+                    <strong>@Token.DisplayName</strong>.
                 </MudText>
 
                 @* User's own repos *@
@@ -29,7 +29,15 @@
                     var selectedUserRepos = _selected.Where(r => userRepoNameSet.Contains(r)).ToList();
                     var allUserReposSelectable = !userRepoNames.Any(r => !_selected.Contains(r) && !_monitoredElsewhere.ContainsKey(r));
 
-                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Your repositories</MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        @if (!string.IsNullOrEmpty(Token.AvatarUrl))
+                        {
+                            <MudAvatar Color="Color.Dark" Size="Size.Small" Style="width:20px;height:20px;">
+                                <MudImage Src="@Token.AvatarUrl" Alt="@Token.DisplayName" />
+                            </MudAvatar>
+                        }
+                        <MudText Typo="Typo.button">Your repositories</MudText>
+                    </MudStack>
                     @if (!allUserReposSelectable && remainingUserRepos.Count > 1)
                     {
                         <MudTextField T="string" @bind-Value="_userRepoSearch" Placeholder="Search repositories…"
@@ -72,6 +80,8 @@
                     }
                 }
 
+                <br />
+
                 @* Org repos *@
                 @foreach (var (org, repos) in _orgRepos)
                 {
@@ -84,7 +94,15 @@
                     var selectedOrgRepos = _selected.Where(r => orgRepoNameSet.Contains(r)).ToList();
                     var allOrgReposSelectable = !orgRepoNames.Any(r => !_selected.Contains(r) && !_monitoredElsewhere.ContainsKey(r));
 
-                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">@orgName</MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        @if (_orgAvatars.TryGetValue(orgName, out var orgAvatar))
+                        {
+                            <MudAvatar Color="Color.Dark" Size="Size.Small">
+                                <MudImage Src="@orgAvatar" Alt="@orgName" />
+                            </MudAvatar>
+                        }
+                        <MudText Typo="Typo.button">@orgName</MudText>
+                    </MudStack>
                     @if (!allOrgReposSelectable && remainingOrgRepos.Count > 1)
                     {
                         <MudTextField T="string"
@@ -130,8 +148,13 @@
                     }
                 }
 
+                <br />
+
                 @* Live search for repos not in any local list *@
-                <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Search any public repository</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudIcon Icon="@Icons.Custom.Brands.GitHub" Size="Size.Small" />
+                    <MudText Typo="Typo.button">Public Repositories</MudText>
+                </MudStack>
                 <MudAutocomplete T="string"
                                  Placeholder="owner/repo"
                                  SearchFunc="@SearchReposAsync"
@@ -181,6 +204,7 @@
     // Maps repo full name → login of the other account monitoring it.
     private Dictionary<string, string> _monitoredElsewhere = [];
 
+    private Dictionary<string, string> _orgAvatars = new(StringComparer.OrdinalIgnoreCase);
     private string _userRepoSearch = "";
     private Dictionary<string, string> _orgRepoSearches = new(StringComparer.OrdinalIgnoreCase);
 
@@ -210,6 +234,9 @@
 
             var orgRepos = new Dictionary<string, List<GitHubRepoDto>>();
             var orgs = await orgsTask;
+            foreach (var org in orgs)
+                if (!string.IsNullOrEmpty(org.AvatarUrl))
+                    _orgAvatars[org.Login] = org.AvatarUrl;
             var orgTasks = orgs.Select(async org =>
             {
                 var repos = await FetchOrgReposAsync(client, org.Login);
@@ -335,7 +362,8 @@
         [property: System.Text.Json.Serialization.JsonPropertyName("private")] bool Private);
 
     private record GitHubOrgDto(
-        [property: System.Text.Json.Serialization.JsonPropertyName("login")] string Login);
+        [property: System.Text.Json.Serialization.JsonPropertyName("login")] string Login,
+        [property: System.Text.Json.Serialization.JsonPropertyName("avatar_url")] string? AvatarUrl);
 
     private record GitHubRepoSearchDto(
         [property: System.Text.Json.Serialization.JsonPropertyName("total_count")] int TotalCount,

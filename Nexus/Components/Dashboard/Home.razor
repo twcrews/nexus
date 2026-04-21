@@ -52,7 +52,8 @@ else
                                       AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" Immediate="true" />
                     </div>
                 </MudStack>
-                <WorkItemList Items="_workItems" ShowAssignee="true" SearchTerm="@_workItemSearch" />
+                <WorkItemList Items="_workItems" SearchTerm="@_workItemSearch"
+                             AssignedItemIds="@_assignedWorkItemIds" />
             </MudItem>
             <MudItem xs="12" lg="6">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween"
@@ -64,7 +65,8 @@ else
                                       Clearable="true" Immediate="true" />
                     </div>
                 </MudStack>
-                <PullRequestList Items="_pullRequests" SearchTerm="@_prSearch" />
+                <PullRequestList Items="_pullRequests" SearchTerm="@_prSearch"
+                                AssignedPrIds="@_assignedPrIds" />
             </MudItem>
         </MudGrid>
     </div>
@@ -80,8 +82,12 @@ else
     private IEnumerable<PullRequest> _assignedPrs = [];
     private IEnumerable<PullRequest> _unassignedPrs = [];
 
-    private IEnumerable<WorkItem> _workItems => _assignedWorkItems.Concat(_unassignedWorkItems);
+    private IEnumerable<WorkItem> _workItems =>
+        _assignedWorkItems.OrderByDescending(x => x.UpdatedAt)
+        .Concat(_unassignedWorkItems.OrderByDescending(x => x.UpdatedAt));
+    private HashSet<string> _assignedWorkItemIds => _assignedWorkItems.Select(x => x.Id).ToHashSet();
     private IEnumerable<PullRequest> _pullRequests => _assignedPrs.Concat(_unassignedPrs);
+    private HashSet<string> _assignedPrIds => _assignedPrs.Select(x => x.Id).ToHashSet();
 
     private string? _workItemSearch;
     private string? _prSearch;

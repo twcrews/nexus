@@ -1,14 +1,13 @@
 @inject IJSRuntime JS
 
 <MudDataGrid Elevation="0" Class="bordered" T="WorkItem" Items="@_items" Hover="true" SortMode="SortMode.Single"
-             RowClick="@OnRowClick" RowStyleFunc="@((item, _) => item.Url is not null ? "cursor:pointer;" : null)">
+             RowClick="@OnRowClick" RowStyleFunc="@RowStyle">
     <NoRecordsContent>
         <MudText Typo="Typo.body2" Style="opacity:0.5;padding:1rem;">No work items.</MudText>
     </NoRecordsContent>
     <ColGroup>
         <col style="width: 12%;" />
-        <col style="width: 58%;" />
-        <col style="width: 15%;" />
+        <col style="width: 73%;" />
         <col style="width: 15%;" />
     </ColGroup>
     <Columns>
@@ -36,21 +35,6 @@
                 <ScrollText>@context.Item.Title</ScrollText>
             </CellTemplate>
         </PropertyColumn>
-        @if (ShowAssignee)
-        {
-            <PropertyColumn Property="x => x.Assignee != null ? x.Assignee.Name : null" Title="Assignee">
-                <CellTemplate>
-                    @if (context.Item.Assignee is not null)
-                    {
-                        <UserPill User="context.Item.Assignee" />
-                    }
-                    else
-                    {
-                        <span style="opacity:0.35;">—</span>
-                    }
-                </CellTemplate>
-            </PropertyColumn>
-        }
         <PropertyColumn Property="x => x.UpdatedAt" Title="Updated">
             <CellTemplate>
                 <span style="font-size:0.75rem;opacity:0.6;">@Relative(context.Item.UpdatedAt)</span>
@@ -61,16 +45,26 @@
 
 @code {
     [Parameter, EditorRequired] public IEnumerable<WorkItem>? Items { get; set; }
-    [Parameter] public bool ShowAssignee { get; set; } = true;
-    [Parameter] public string? SearchTerm { get; set; }
+[Parameter] public string? SearchTerm { get; set; }
+    [Parameter] public HashSet<string>? AssignedItemIds { get; set; }
+
+    private string? RowStyle(WorkItem item, int _)
+    {
+        var cursor = item.Url is not null ? "cursor:pointer;" : null;
+        var bg = AssignedItemIds?.Contains(item.Id) == true ? "background-color:var(--mud-palette-primary-hover);" : null;
+        return cursor is not null || bg is not null ? $"{bg}{cursor}" : null;
+    }
 
     private List<WorkItem> _items
     {
         get
         {
             if (Items is null) return [];
-            if (string.IsNullOrWhiteSpace(SearchTerm)) return Items.ToList();
-            return Items.Where(x => FuzzyMatch(SearchTerm, x)).ToList();
+            var filtered = string.IsNullOrWhiteSpace(SearchTerm) ? Items : Items.Where(x => FuzzyMatch(SearchTerm, x));
+            return filtered
+                .OrderByDescending(x => AssignedItemIds?.Contains(x.Id) == true)
+                .ThenByDescending(x => x.UpdatedAt)
+                .ToList();
         }
     }
 
@@ -81,7 +75,7 @@
             x.Id,
             x.Title,
             x.Description ?? "",
-            x.Assignee?.Name ?? "",
+            x.Assignee?.Name ?? "unassigned",
             x.Creator.Name,
             x.Status.ToString(),
             string.Join(' ', x.Labels)

@@ -151,10 +151,11 @@ public class AdoProvider(
                 foreach (var pr in prs)
                 {
                     var mapped = this.MapPullRequest(pr, repoName, project);
+                    bool isAuthor = string.Equals(pr.CreatedBy?.UniqueName, token.Login, StringComparison.OrdinalIgnoreCase);
                     bool isReviewer = pr.Reviewers.Any(r =>
                         string.Equals(r.UniqueName, token.Login, StringComparison.OrdinalIgnoreCase));
 
-                    if (isReviewer)
+                    if (isAuthor || isReviewer)
                         assigned.Add(mapped);
                     else if (pr.IsDraft != true && pr.Reviewers.Length == 0)
                         unassigned.Add(mapped);

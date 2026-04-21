@@ -86,7 +86,8 @@
             {
                 PersonalAccessToken = _pat.Trim(),
                 Login = user.Login,
-                DisplayName = user.Name ?? user.Login
+                DisplayName = user.Name ?? user.Login,
+                AvatarUrl = user.AvatarUrl
             };
         }
         catch
@@ -105,5 +106,6 @@
 
     private record GitHubUserDto(
         [property: JsonPropertyName("login")] string Login,
-        [property: JsonPropertyName("name")] string? Name);
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("avatar_url")] string? AvatarUrl);
 }

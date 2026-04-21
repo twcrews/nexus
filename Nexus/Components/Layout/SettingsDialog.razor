@@ -14,7 +14,7 @@
         <MudStack Spacing="4" Style="min-width:320px;padding:0.5rem 0;">
 
             <MudStack Spacing="1">
-                <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Appearance</MudText>
+                <MudText Typo="Typo.button" Style="opacity:0.5;">Appearance</MudText>
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                     <MudText Typo="Typo.body1">Theme</MudText>
                     <MudToggleGroup T="ThemePreference" Value="_themePreference" ValueChanged="OnThemePreferenceChanged"
@@ -35,7 +35,7 @@
                         || accounts.MicrosoftAccounts.Count > 0;
                 }
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.overline" Style="opacity:0.5;margin:0;">Accounts</MudText>
+                    <MudText Typo="Typo.button" Style="opacity:0.5;">Accounts</MudText>
                     <MudStack Row="true" Spacing="1">
                         <MudButton Size="Size.Small" StartIcon="@Icons.Custom.Brands.GitHub"
                                    OnClick="@ConnectGitHubAsync">Link GitHub</MudButton>
@@ -169,8 +169,6 @@
         MudDialog.Close();
         var options = new DialogOptions
         {
-            MaxWidth = MaxWidth.Small,
-            FullWidth = true,
             CloseOnEscapeKey = true,
             BackdropClick = false
         };
@@ -188,8 +186,6 @@
         MudDialog.Close();
         var options = new DialogOptions
         {
-            MaxWidth = MaxWidth.Small,
-            FullWidth = true,
             CloseOnEscapeKey = true,
             BackdropClick = false
         };
@@ -210,8 +206,6 @@
         };
         var options = new DialogOptions
         {
-            MaxWidth = MaxWidth.Medium,
-            FullWidth = true,
             CloseOnEscapeKey = false,
             BackdropClick = false
         };
@@ -226,8 +220,6 @@
         };
         var options = new DialogOptions
         {
-            MaxWidth = MaxWidth.Medium,
-            FullWidth = true,
             CloseOnEscapeKey = false,
             BackdropClick = false
         };
@@ -250,8 +242,6 @@
         };
         var options = new DialogOptions
         {
-            MaxWidth = MaxWidth.Medium,
-            FullWidth = true,
             CloseOnEscapeKey = true,
             BackdropClick = false
         };
@@ -266,8 +256,6 @@
         };
         var options = new DialogOptions
         {
-            MaxWidth = MaxWidth.Medium,
-            FullWidth = true,
             CloseOnEscapeKey = true,
             BackdropClick = false
         };

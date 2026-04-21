@@ -106,7 +106,9 @@
             {
                 PersonalAccessToken = _pat.Trim(),
                 OrgUrl = orgUrl,
-                Login = connData.AuthenticatedUser.SubjectDescriptor ?? connData.AuthenticatedUser.ProviderDisplayName,
+                Login = connData.AuthenticatedUser.Properties?.Account?.Value
+                    ?? connData.AuthenticatedUser.SubjectDescriptor
+                    ?? connData.AuthenticatedUser.ProviderDisplayName,
                 DisplayName = connData.AuthenticatedUser.ProviderDisplayName
             };
         }
@@ -130,5 +132,12 @@
 
     private record ConnectionUserDto(
         [property: JsonPropertyName("providerDisplayName")] string ProviderDisplayName,
-        [property: JsonPropertyName("subjectDescriptor")] string? SubjectDescriptor);
+        [property: JsonPropertyName("subjectDescriptor")] string? SubjectDescriptor,
+        [property: JsonPropertyName("properties")] ConnectionUserPropertiesDto? Properties);
+
+    private record ConnectionUserPropertiesDto(
+        [property: JsonPropertyName("Account")] ConnectionUserPropertyValueDto? Account);
+
+    private record ConnectionUserPropertyValueDto(
+        [property: JsonPropertyName("$value")] string? Value);
 }

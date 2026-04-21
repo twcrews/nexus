@@ -25,6 +25,7 @@ public class GitHubAccountToken
     public string PersonalAccessToken { get; set; } = "";
     public string Login { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    public string? AvatarUrl { get; set; }
     /// <summary>
     /// Repositories to monitor in owner/repo format. Empty list means monitor nothing (explicit opt-in required).
     /// </summary>
