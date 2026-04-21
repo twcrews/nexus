@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.Work.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
@@ -13,7 +14,8 @@ namespace Nexus.Providers;
 
 public class AdoProvider(
     MicrosoftAccountToken token,
-    ILogger<AdoProvider> logger) : IDataProvider
+    ILogger<AdoProvider> logger,
+    IDataProtector avatarProtector) : IDataProvider
 {
     public async Task<DashboardData> GetDashboardDataAsync()
     {
@@ -148,7 +150,7 @@ public class AdoProvider(
 
                 foreach (var pr in prs)
                 {
-                    var mapped = MapPullRequest(pr, repoName);
+                    var mapped = this.MapPullRequest(pr, repoName, project);
                     bool isReviewer = pr.Reviewers.Any(r =>
                         string.Equals(r.UniqueName, token.Login, StringComparison.OrdinalIgnoreCase));
 
@@ -167,7 +169,7 @@ public class AdoProvider(
         return (assigned, unassigned);
     }
 
-    private static Models.WorkItem MapWorkItem(Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models.WorkItem wi, string orgUrl, string projectName)
+    private Models.WorkItem MapWorkItem(Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models.WorkItem wi, string orgUrl, string projectName)
     {
         string? Get(string field) => wi.Fields.TryGetValue(field, out var v) ? v?.ToString() : null;
 
@@ -193,8 +195,10 @@ public class AdoProvider(
 
         string? assigneeName = wi.Fields.TryGetValue("System.AssignedTo", out var at)
             ? (at is IdentityRef ir ? ir.DisplayName : at?.ToString()) : null;
+        string? assigneeAvatar = at is IdentityRef irAvatar ? irAvatar.ImageUrl : null;
         string? creatorName = wi.Fields.TryGetValue("System.CreatedBy", out var cb)
             ? (cb is IdentityRef cir ? cir.DisplayName : cb?.ToString()) : null;
+        string? creatorAvatar = cb is IdentityRef cirAvatar ? cirAvatar.ImageUrl : null;
 
         var tags = Get("System.Tags")
             ?.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -214,8 +218,8 @@ public class AdoProvider(
             Type: type,
             Title: Get("System.Title") ?? "",
             Description: Get("System.Description"),
-            Creator: new UserReference(creatorName ?? "Unknown", null),
-            Assignee: assigneeName is not null ? new UserReference(assigneeName, null) : null,
+            Creator: new UserReference(creatorName ?? "Unknown", ProxyAvatarUrl(creatorAvatar)),
+            Assignee: assigneeName is not null ? new UserReference(assigneeName, ProxyAvatarUrl(assigneeAvatar)) : null,
             Status: status,
             CreatedAt: created,
             UpdatedAt: updated,
@@ -223,7 +227,14 @@ public class AdoProvider(
             Url: url);
     }
 
-    private static Models.PullRequest MapPullRequest(GitPullRequest pr, string repoName)
+    private string? ProxyAvatarUrl(string? imageUrl)
+    {
+        if (string.IsNullOrEmpty(imageUrl)) return null;
+        var protected_ = avatarProtector.Protect($"{token.PersonalAccessToken}|{imageUrl}");
+        return $"/ado-avatar?t={Uri.EscapeDataString(protected_)}";
+    }
+
+    private Models.PullRequest MapPullRequest(GitPullRequest pr, string repoName, AdoMonitoredProject project)
     {
         var status = pr.Status switch
         {
@@ -236,20 +247,23 @@ public class AdoProvider(
         static string BranchName(string? refName) =>
             refName?.StartsWith("refs/heads/") == true ? refName[11..] : refName ?? "";
 
+        var url = $"{project.OrgUrl.TrimEnd('/')}/{Uri.EscapeDataString(project.ProjectName)}/_git/{Uri.EscapeDataString(repoName)}/pullrequest/{pr.PullRequestId}";
+
         return new Models.PullRequest(
             Id: pr.PullRequestId.ToString(),
             Title: pr.Title,
             Description: pr.Description,
-            Creator: new UserReference(pr.CreatedBy?.DisplayName ?? "Unknown", pr.CreatedBy?.ImageUrl),
+            Creator: new UserReference(pr.CreatedBy?.DisplayName ?? "Unknown", ProxyAvatarUrl(pr.CreatedBy?.ImageUrl)),
             Source: new RepoBranch(repoName, BranchName(pr.SourceRefName)),
             Target: new RepoBranch(repoName, BranchName(pr.TargetRefName)),
             Assignees: [],
             Reviewers: pr.Reviewers
-                .Select(r => new UserReference(r.DisplayName, r.ImageUrl))
+                .Select(r => new UserReference(r.DisplayName, ProxyAvatarUrl(r.ImageUrl)))
                 .ToList(),
             Status: status,
             CreatedAt: pr.CreationDate,
-            UpdatedAt: pr.CreationDate);
+            UpdatedAt: pr.CreationDate,
+            Url: url);
     }
 
     private static string? BuildAreaPathFilter(TeamFieldValues teamFieldValues)

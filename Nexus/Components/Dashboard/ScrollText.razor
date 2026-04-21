@@ -1,7 +1,8 @@
-<div class="scroll-text-container">
-    <span class="scroll-text-inner">@ChildContent</span>
+<div class="scroll-text-container" style="@Style">
+    <span class="scroll-text-inner" style="@Style">@ChildContent</span>
 </div>
 
 @code {
     [Parameter, EditorRequired] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string? Style { get; set; }
 }

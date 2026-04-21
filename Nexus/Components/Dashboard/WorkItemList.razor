@@ -1,43 +1,39 @@
 @inject IJSRuntime JS
 
-<MudDataGrid Elevation="0" Class="bordered" T="WorkItem" Items="@_items" Hover="true" Dense="true" SortMode="SortMode.Single"
+<MudDataGrid Elevation="0" Class="bordered" T="WorkItem" Items="@_items" Hover="true" SortMode="SortMode.Single"
              RowClick="@OnRowClick" RowStyleFunc="@((item, _) => item.Url is not null ? "cursor:pointer;" : null)">
     <NoRecordsContent>
         <MudText Typo="Typo.body2" Style="opacity:0.5;padding:1rem;">No work items.</MudText>
     </NoRecordsContent>
+    <ColGroup>
+        <col style="width: 12%;" />
+        <col style="width: 58%;" />
+        <col style="width: 15%;" />
+        <col style="width: 15%;" />
+    </ColGroup>
     <Columns>
-        <PropertyColumn Property="x => (int)x.Type" Title="Type">
-            <CellTemplate>
-                <MudTooltip Text="@SplitPascal(context.Item.Type)" Placement="Placement.Right">
-                    <MudIcon Icon="@TypeIcon(context.Item.Type)"
-                             Color="@TypeColor(context.Item.Type)"
-                             Size="Size.Small" />
-                </MudTooltip>
-            </CellTemplate>
-        </PropertyColumn>
         <PropertyColumn Property="x => x.Id" Title="ID">
             <CellTemplate>
-                <span style="font-size:0.75rem;font-family:'JetBrains Mono',monospace;opacity:0.6;">
-                    @context.Item.Id
-                </span>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudTooltip Text="@SplitPascal(context.Item.Type)" Placement="Placement.Right">
+                        <MudIcon Icon="@TypeIcon(context.Item.Type)"
+                                 Color="@TypeColor(context.Item.Type)"
+                                 Size="Size.Small" />
+                    </MudTooltip>
+                    <MudTooltip Text="@SplitPascal(context.Item.Status)" Placement="Placement.Right">
+                        <MudIcon Icon="@StatusIcon(context.Item.Status)"
+                                 Color="@StatusColor(context.Item.Status)"
+                                 Size="Size.Small" />
+                    </MudTooltip>
+                    <span style="font-size:0.75rem;font-family:'JetBrains Mono',monospace;opacity:0.6;">
+                        @context.Item.Id
+                    </span>
+                </MudStack>
             </CellTemplate>
         </PropertyColumn>
         <PropertyColumn Property="x => x.Title" Title="Title">
             <CellTemplate>
-                <MudStack Spacing="1">
-                    <ScrollText>@context.Item.Title</ScrollText>
-                    @if (context.Item.Labels.Count > 0)
-                    {
-                        <MudStack Row="true" Spacing="1" Style="flex-wrap:wrap;">
-                            @foreach (var label in context.Item.Labels)
-                            {
-                                <MudChip T="string" Text="@label" Color="Color.Default"
-                                         Variant="Variant.Outlined" Size="Size.Small"
-                                         Style="font-size:0.65rem;height:18px;" />
-                            }
-                        </MudStack>
-                    }
-                </MudStack>
+                <ScrollText>@context.Item.Title</ScrollText>
             </CellTemplate>
         </PropertyColumn>
         @if (ShowAssignee)
@@ -55,13 +51,6 @@
                 </CellTemplate>
             </PropertyColumn>
         }
-        <PropertyColumn Property="x => x.Status" Title="Status">
-            <CellTemplate>
-                <MudChip T="string" Text="@SplitPascal(context.Item.Status)"
-                         Color="@StatusColor(context.Item.Status)"
-                         Variant="Variant.Filled" Size="Size.Small" />
-            </CellTemplate>
-        </PropertyColumn>
         <PropertyColumn Property="x => x.UpdatedAt" Title="Updated">
             <CellTemplate>
                 <span style="font-size:0.75rem;opacity:0.6;">@Relative(context.Item.UpdatedAt)</span>
@@ -73,8 +62,33 @@
 @code {
     [Parameter, EditorRequired] public IEnumerable<WorkItem>? Items { get; set; }
     [Parameter] public bool ShowAssignee { get; set; } = true;
+    [Parameter] public string? SearchTerm { get; set; }
 
-    private List<WorkItem> _items => Items?.ToList() ?? [];
+    private List<WorkItem> _items
+    {
+        get
+        {
+            if (Items is null) return [];
+            if (string.IsNullOrWhiteSpace(SearchTerm)) return Items.ToList();
+            return Items.Where(x => FuzzyMatch(SearchTerm, x)).ToList();
+        }
+    }
+
+    private static bool FuzzyMatch(string term, WorkItem x)
+    {
+        var haystack = string.Join(' ',
+            x.Type.ToString(),
+            x.Id,
+            x.Title,
+            x.Description ?? "",
+            x.Assignee?.Name ?? "",
+            x.Creator.Name,
+            x.Status.ToString(),
+            string.Join(' ', x.Labels)
+        ).ToLowerInvariant();
+        return term.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .All(w => haystack.Contains(w));
+    }
 
     private async Task OnRowClick(DataGridRowClickEventArgs<WorkItem> args)
     {
@@ -111,6 +125,17 @@
         WorkItemType.Feature   => Color.Warning,
         WorkItemType.Epic      => Color.Tertiary,
         _                      => Color.Default,
+    };
+
+    private static string StatusIcon(WorkItemStatus s) => s switch
+    {
+        WorkItemStatus.New        => Icons.Material.Filled.FiberNew,
+        WorkItemStatus.Active     => Icons.Material.Filled.PlayCircle,
+        WorkItemStatus.InProgress => Icons.Material.Filled.Autorenew,
+        WorkItemStatus.Resolved   => Icons.Material.Filled.CheckCircle,
+        WorkItemStatus.Closed     => Icons.Material.Filled.Cancel,
+        WorkItemStatus.Blocked    => Icons.Material.Filled.Block,
+        _                         => Icons.Material.Filled.Circle,
     };
 
     private static Color StatusColor(WorkItemStatus s) => s switch

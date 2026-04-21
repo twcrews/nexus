@@ -1,9 +1,9 @@
 <MudPaper Elevation="0" Class="bordered" Style="padding: 16px;">
     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="4">
-        <MudIcon Icon="@Icon" Style="font-size:4rem;font-weight:200;opacity:0.5;flex-shrink:0;" />
+        <MudIcon Icon="@Icon" Class="thin" Style="font-size:4rem;flex-shrink:0;font-weight:100;" />
         <MudStack Spacing="0">
             <MudText Typo="Typo.h4" Style="font-size:2.5rem;font-weight:700;line-height:1;margin:0;">
-                <AnimatedNumber Value="@Count" />
+                <AnimatedNumber Value="@Count" />@(Count >= 100 ? "+" : "")
             </MudText>
             <MudText Typo="Typo.body2" Style="opacity:0.6;margin:0;">@Label</MudText>
         </MudStack>

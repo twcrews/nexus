@@ -5,33 +5,37 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
-<MudThemeProvider @ref="_mudThemeProvider" Theme="_theme"
-    IsDarkMode="IsDarkMode" IsDarkModeChanged="@(v => { _systemIsDark = v; StateHasChanged(); })"
-    ObserveSystemDarkModeChange="@(_themePreference == ThemePreference.System)" />
+<MudThemeProvider @ref="_mudThemeProvider" Theme="_theme" IsDarkMode="IsDarkMode"
+                  IsDarkModeChanged="@(v => { _systemIsDark = v; StateHasChanged(); })"
+                  ObserveSystemDarkModeChange="@(_themePreference == ThemePreference.System)" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
 <CascadingValue Value="IsDarkMode" Name="IsDarkMode">
     <MudLayout>
-        <MudAppBar Dense Elevation="0" Style="border-bottom: 1px solid var(--mud-palette-divider);">
-            <div style="height: 100%; padding: 8px;">
-                <Wordmark/>
+        <MudAppBar Dense Elevation="0" Style="border-bottom: 1px solid var(--mud-palette-divider); padding: 0;">
+            <div
+                style="width: 100%; max-width: 1600px; margin: 0 auto; display: flex; align-items: center; height: 100%; padding: 0 16px;">
+                <div style="height: 100%; padding: 8px 0;">
+                    <Wordmark />
+                </div>
+                <MudSpacer />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    @if (RefreshService.LastRefreshed.HasValue)
+                    {
+                        <MudText Typo="Typo.caption">
+                            updated @(RefreshService.LastRefreshed!.Value.ToLocalTime().ToString("h:mm tt"))
+                        </MudText>
+                    }
+                    <MudIconButton Icon="@Icons.Material.Filled.Settings" Size="Size.Small"
+                                   OnClick="@OpenSettingsDialog" />
+                </MudStack>
             </div>
-            <MudSpacer />
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                @if (RefreshService.LastRefreshed.HasValue)
-                {
-                    <MudText Typo="Typo.caption">
-                        last refreshed at @(RefreshService.LastRefreshed!.Value.ToLocalTime().ToString("h:mm tt"))
-                    </MudText>
-                }
-                <MudIconButton Icon="@Icons.Material.Filled.Settings" Size="Size.Small" OnClick="@OpenSettingsDialog" />
-            </MudStack>
         </MudAppBar>
         <MudMainContent>
             <ErrorBoundary>
-                <Home />
+                <Home OnOpenSettings="OpenSettingsDialog" />
             </ErrorBoundary>
         </MudMainContent>
     </MudLayout>

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Nexus.Models;
 using Nexus.Services;
 
@@ -7,7 +8,8 @@ public class AggregateDataProvider(
     SessionTokenStore session,
     IHttpClientFactory httpFactory,
     ILogger<AggregateDataProvider> logger,
-    ILoggerFactory loggerFactory) : IDataProvider
+    ILoggerFactory loggerFactory,
+    IDataProtectionProvider dataProtection) : IDataProvider
 {
     public async Task<DashboardData> GetDashboardDataAsync()
     {
@@ -43,7 +45,8 @@ public class AggregateDataProvider(
 
         providers.AddRange(accounts.MicrosoftAccounts.Select(t =>
             (IDataProvider)new AdoProvider(t,
-                loggerFactory.CreateLogger<AdoProvider>())));
+                loggerFactory.CreateLogger<AdoProvider>(),
+                dataProtection.CreateProtector("Nexus.AvatarProxy.v1"))));
 
         return providers;
     }

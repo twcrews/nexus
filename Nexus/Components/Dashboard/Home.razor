@@ -11,42 +11,70 @@
         <MudProgressCircular Indeterminate="true" Size="Size.Large" />
     </MudStack>
 }
+else if (!_hasAccounts)
+{
+    <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center" Spacing="3" Style="height:60vh;">
+        <MudIcon Icon="@MudBlazor.FontIcons.MaterialSymbols.Outlined.NoAccounts" Style="font-size:120px; opacity:0.6;" />
+        <MudText Typo="Typo.h6" Style="opacity:0.6;">No accounts added yet</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="@OnOpenSettings">Add account</MudButton>
+    </MudStack>
+}
 else
 {
-    <div style="padding:16px;">
+    <div style="padding:16px;max-width:1600px;margin:0 auto;">
         <MudGrid Spacing="4" Style="margin-bottom:24px;">
             <MudItem xs="6" md="3">
                 <MetricCard Count="@_assignedWorkItems.Count()" Label="work items assigned to you"
-                            Icon="@Icons.Material.Filled.Person" />
+                            Icon="@MudBlazor.FontIcons.MaterialSymbols.Outlined.AssignmentInd" />
             </MudItem>
             <MudItem xs="6" md="3">
                 <MetricCard Count="@_unassignedWorkItems.Count()" Label="unassigned work items"
-                            Icon="@Icons.Material.Filled.Inbox" />
+                            Icon="@MudBlazor.FontIcons.MaterialSymbols.Outlined.AssignmentLate" />
             </MudItem>
             <MudItem xs="6" md="3">
                 <MetricCard Count="@_assignedPrs.Count()" Label="PRs assigned to you"
-                            Icon="@Icons.Material.Filled.RateReview" />
+                            Icon="@MudBlazor.FontIcons.MaterialSymbols.Outlined.PersonEdit" />
             </MudItem>
             <MudItem xs="6" md="3">
                 <MetricCard Count="@_unassignedPrs.Count()" Label="unassigned PRs"
-                            Icon="@Icons.Material.Filled.CallMerge" />
+                            Icon="@MudBlazor.FontIcons.MaterialSymbols.Outlined.RebaseEdit" />
             </MudItem>
         </MudGrid>
         <MudGrid Spacing="4">
             <MudItem xs="12" lg="6">
-                <MudText Typo="Typo.h5">Work Items</MudText>
-                <WorkItemList Items="_workItems" ShowAssignee="true" />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween"
+                          Style="margin-bottom:4px;">
+                    <MudText Typo="Typo.h5">Work Items</MudText>
+                    <div style="width:220px;">
+                        <MudTextField T="string" @bind-Value="_workItemSearch" Placeholder="Search..."
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" Immediate="true" />
+                    </div>
+                </MudStack>
+                <WorkItemList Items="_workItems" ShowAssignee="true" SearchTerm="@_workItemSearch" />
             </MudItem>
             <MudItem xs="12" lg="6">
-                <MudText Typo="Typo.h5">Pull Requests</MudText>
-                <PullRequestList Items="_pullRequests" />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween"
+                          Style="margin-bottom:4px;">
+                    <MudText Typo="Typo.h5">Pull Requests</MudText>
+                    <div style="width:220px;">
+                        <MudTextField T="string" @bind-Value="_prSearch" Placeholder="Search..." Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                      Clearable="true" Immediate="true" />
+                    </div>
+                </MudStack>
+                <PullRequestList Items="_pullRequests" SearchTerm="@_prSearch" />
             </MudItem>
         </MudGrid>
     </div>
 }
 
 @code {
+    [Parameter] public EventCallback OnOpenSettings { get; set; }
+
     private bool _loaded;
+    private bool _hasAccounts;
     private IEnumerable<WorkItem> _assignedWorkItems = [];
     private IEnumerable<WorkItem> _unassignedWorkItems = [];
     private IEnumerable<PullRequest> _assignedPrs = [];
@@ -54,6 +82,9 @@ else
 
     private IEnumerable<WorkItem> _workItems => _assignedWorkItems.Concat(_unassignedWorkItems);
     private IEnumerable<PullRequest> _pullRequests => _assignedPrs.Concat(_unassignedPrs);
+
+    private string? _workItemSearch;
+    private string? _prSearch;
 
     private CancellationTokenSource _cts = new();
 
@@ -75,11 +106,13 @@ else
 
     private async Task RefreshAsync()
     {
+        _hasAccounts = TokenStore.GetLinkedAccounts() is { } accounts
+            && (accounts.GitHubAccounts.Count > 0 || accounts.MicrosoftAccounts.Count > 0 || accounts.DummyAccounts.Count > 0);
         var data = await DataProvider.GetDashboardDataAsync();
-        _assignedWorkItems   = data.AssignedWorkItems;
+        _assignedWorkItems = data.AssignedWorkItems;
         _unassignedWorkItems = data.UnassignedWorkItems;
-        _assignedPrs         = data.AssignedPullRequests;
-        _unassignedPrs       = data.UnassignedPullRequests;
+        _assignedPrs = data.AssignedPullRequests;
+        _unassignedPrs = data.UnassignedPullRequests;
         RefreshService.NotifyRefreshed();
     }
 

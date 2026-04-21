@@ -1,40 +1,40 @@
-<MudDataGrid Elevation="0" Class="bordered" T="PullRequest" Items="@_items" SortMode="SortMode.Multiple" Hover="true" Dense="true">
+@inject IJSRuntime JS
+
+<MudDataGrid Elevation="0" Class="bordered" T="PullRequest" Items="@_items" SortMode="SortMode.Single" Hover="true"
+             RowClick="@OnRowClick" RowStyleFunc="@((x, _) => x.Url is not null ? "cursor:pointer;" : null)">
     <NoRecordsContent>
         <MudText Typo="Typo.body2" Style="opacity:0.5;padding:1rem;">No pull requests.</MudText>
     </NoRecordsContent>
+    <ColGroup>
+        <col style="width: 10%;" />
+        <col style="width: 70%;" />
+        <col style="width: 10%;" />
+        <col style="width: 10%;" />
+    </ColGroup>
     <Columns>
-        <TemplateColumn T="PullRequest" Title="Status" SortBy="@(x => x.Status)">
+        <PropertyColumn Property="x => x.Id" Title="ID">
             <CellTemplate>
-                <MudChip T="string" Text="@context.Item.Status.ToString()"
-                         Color="@StatusColor(context.Item.Status)"
-                         Variant="Variant.Filled" Size="Size.Small" />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <UserPill User="context.Item.Creator" />
+                    <span style="font-size:0.75rem;font-family:'JetBrains Mono',monospace;opacity:0.6;">
+                        @context.Item.Id
+                    </span>
+                </MudStack>
             </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn T="PullRequest" Title="ID" SortBy="@(x => x.Id)">
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.Title" Title="Title">
             <CellTemplate>
-                <span style="font-size:0.75rem;font-family:'JetBrains Mono',monospace;opacity:0.6;">
-                    @context.Item.Id
-                </span>
-            </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn T="PullRequest" Title="Title" SortBy="@(x => x.Title)">
-            <CellTemplate>
-                <MudStack Spacing="1">
+                <MudStack Spacing="0" Style="margin: -4px 0;">
                     <ScrollText>@context.Item.Title</ScrollText>
-                    <ScrollText>
+                    <ScrollText Style="margin-top: -4px;">
                         <span style="font-size:0.7rem;opacity:0.55;font-family:'JetBrains Mono',monospace;">
                             @context.Item.Source.Repository/@context.Item.Source.Branch → @context.Item.Target.Branch
                         </span>
                     </ScrollText>
                 </MudStack>
             </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn T="PullRequest" Title="Creator" Sortable="false">
-            <CellTemplate>
-                <UserPill User="context.Item.Creator" />
-            </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn T="PullRequest" Title="Reviewers" Sortable="false">
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.Reviewers.Count" Title="Reviewers">
             <CellTemplate>
                 @if (context.Item.Reviewers.Count == 0)
                 {
@@ -43,36 +43,59 @@
                 else
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                        <UserPill User="context.Item.Reviewers[0]" />
-                        @if (context.Item.Reviewers.Count > 1)
+                        @foreach (var reviewer in context.Item.Reviewers)
                         {
-                            <span style="font-size:0.75rem;opacity:0.55;">+@(context.Item.Reviewers.Count - 1)</span>
+                            <UserPill User="reviewer" />
                         }
                     </MudStack>
                 }
             </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn T="PullRequest" Title="Updated" SortBy="@(x => x.UpdatedAt)">
+        </PropertyColumn>
+        <PropertyColumn Property="x => x.UpdatedAt" Title="Updated">
             <CellTemplate>
                 <span style="font-size:0.75rem;opacity:0.6;">@Relative(context.Item.UpdatedAt)</span>
             </CellTemplate>
-        </TemplateColumn>
+        </PropertyColumn>
     </Columns>
 </MudDataGrid>
 
 @code {
     [Parameter, EditorRequired] public IEnumerable<PullRequest>? Items { get; set; }
+    [Parameter] public string? SearchTerm { get; set; }
 
-    private List<PullRequest> _items => Items?.ToList() ?? [];
-
-    private static Color StatusColor(PullRequestStatus s) => s switch
+    private List<PullRequest> _items
     {
-        PullRequestStatus.Draft  => Color.Default,
-        PullRequestStatus.Open   => Color.Primary,
-        PullRequestStatus.Merged => Color.Success,
-        PullRequestStatus.Closed => Color.Default,
-        _                        => Color.Secondary,
-    };
+        get
+        {
+            if (Items is null) return [];
+            if (string.IsNullOrWhiteSpace(SearchTerm)) return Items.ToList();
+            return Items.Where(x => FuzzyMatch(SearchTerm, x)).ToList();
+        }
+    }
+
+    private static bool FuzzyMatch(string term, PullRequest x)
+    {
+        var haystack = string.Join(' ',
+            x.Status.ToString(),
+            x.Id,
+            x.Title,
+            x.Description ?? "",
+            x.Creator.Name,
+            x.Source.Repository,
+            x.Source.Branch,
+            x.Target.Branch,
+            string.Join(' ', x.Reviewers.Select(r => r.Name)),
+            string.Join(' ', x.Assignees.Select(a => a.Name))
+        ).ToLowerInvariant();
+        return term.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .All(w => haystack.Contains(w));
+    }
+
+    private async Task OnRowClick(DataGridRowClickEventArgs<PullRequest> args)
+    {
+        if (args.Item?.Url is { } url)
+            await JS.InvokeVoidAsync("open", url, "_blank");
+    }
 
     private static string Relative(DateTimeOffset dt)
     {

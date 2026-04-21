@@ -38,7 +38,7 @@ public class GitHubProvider(
                 .Where(x => x.AssigneeLogins.Contains(token.Login) || x.ReviewerLogins.Contains(token.Login))
                 .Select(x => x.PullRequest),
             UnassignedPullRequests: cache.PullRequests
-                .Where(x => !x.AssigneeLogins.Any() && x.PullRequest.Status != PullRequestStatus.Draft)
+                .Where(x => !x.AssigneeLogins.Any() && !x.ReviewerLogins.Contains(token.Login) && x.PullRequest.Status != PullRequestStatus.Draft)
                 .Select(x => x.PullRequest)
         );
     }
@@ -91,7 +91,7 @@ public class GitHubProvider(
             }
             pullRequests(first: 100, states: [OPEN]) {
               nodes {
-                number title body isDraft createdAt updatedAt
+                number title body isDraft createdAt updatedAt url
                 headRefName baseRefName
                 headRepository { nameWithOwner }
                 baseRepository { nameWithOwner }
@@ -209,7 +209,8 @@ public class GitHubProvider(
             Reviewers: reviewers,
             Status: node.IsDraft ? PullRequestStatus.Draft : PullRequestStatus.Open,
             CreatedAt: node.CreatedAt,
-            UpdatedAt: node.UpdatedAt
+            UpdatedAt: node.UpdatedAt,
+            Url: node.Url
         );
 
         return new MappedPr(pr, assigneeLogins, reviewerLogins);
@@ -274,7 +275,8 @@ internal record GqlPr(
     [property: JsonPropertyName("baseRepository")] GqlRepo? BaseRepository,
     [property: JsonPropertyName("author")] GqlActor? Author,
     [property: JsonPropertyName("assignees")] GqlUserConnection Assignees,
-    [property: JsonPropertyName("reviewRequests")] GqlReviewRequestConnection ReviewRequests);
+    [property: JsonPropertyName("reviewRequests")] GqlReviewRequestConnection ReviewRequests,
+    [property: JsonPropertyName("url")] string? Url);
 
 internal record GqlActor(
     [property: JsonPropertyName("login")] string Login,

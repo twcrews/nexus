@@ -13,5 +13,6 @@ public record PullRequest(
     IReadOnlyList<UserReference> Reviewers,
     PullRequestStatus Status,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt
+    DateTimeOffset UpdatedAt,
+    string? Url = null
 );
