@@ -22,7 +22,8 @@
                 </div>
                 <MudSpacer />
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                    @if (RefreshService.LastRefreshed.HasValue)
+                    @{ var accounts = TokenStore.GetLinkedAccounts(); }
+                    @if (RefreshService.LastRefreshed.HasValue && (accounts.MicrosoftAccounts.Count > 0 || accounts.GitHubAccounts.Count > 0))
                     {
                         <MudText Typo="Typo.caption">
                             updated @(RefreshService.LastRefreshed!.Value.ToLocalTime().ToString("h:mm tt"))

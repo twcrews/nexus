@@ -235,7 +235,8 @@ public class AdoProvider(
             CreatedAt: created,
             UpdatedAt: updated,
             Labels: tags,
-            Url: url);
+            Url: url,
+            Provider: Models.DataProvider.AzureDevOps);
     }
 
     private string? ProxyAvatarUrl(string? imageUrl)
@@ -296,7 +297,8 @@ public class AdoProvider(
             AutoComplete: pr.AutoCompleteSetBy is not null,
             Labels: pr.Labels?.Select(l => l.Name).ToList(),
             LinkedWorkItemIds: linkedWorkItemIds,
-            LinkedWorkItemUrls: linkedWorkItemUrls);
+            LinkedWorkItemUrls: linkedWorkItemUrls,
+            Provider: Models.DataProvider.AzureDevOps);
     }
 
     private static ReviewerVote MapVote(int vote) => vote switch

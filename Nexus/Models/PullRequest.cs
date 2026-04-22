@@ -19,5 +19,6 @@ public record PullRequest(
     bool AutoComplete = false,
     IReadOnlyList<string>? Labels = null,
     IReadOnlyList<string>? LinkedWorkItemIds = null,
-    IReadOnlyDictionary<string, string>? LinkedWorkItemUrls = null
+    IReadOnlyDictionary<string, string>? LinkedWorkItemUrls = null,
+    DataProvider Provider = DataProvider.GitHub
 );

@@ -58,6 +58,10 @@
         <div style="padding:0.75rem 1rem 0.75rem 2.5rem;display:flex;flex-direction:column;gap:0.5rem;">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                 <MudText Typo="Typo.h6">
+                    <MudTooltip Text="@(pr.Provider == DataProvider.AzureDevOps ? "Azure DevOps" : "GitHub")">
+                        <MudIcon Icon="@(pr.Provider == DataProvider.AzureDevOps ? Icons.Custom.Brands.MicrosoftAzure : Icons.Custom.Brands.GitHub)"
+                                    Size="Size.Small" Style="margin-right: 0.5rem; margin-bottom: -0.2rem;" />
+                    </MudTooltip>
                     @if (pr.Url is not null)
                     {
                         <a href="@pr.Url" target="_blank" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">@pr.Title</a>
