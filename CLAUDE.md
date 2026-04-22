@@ -33,7 +33,7 @@ Nexus is a Blazor Interactive Server dashboard that aggregates work items and pu
 
 Both GitHub and Azure DevOps are fully implemented using PAT (Personal Access Token) authentication.
 
-- **Components:** Full dashboard UI — metric cards, tabbed work item and PR lists, animated numbers, theme toggle, header with refresh timestamp, PR detail views. Theme preference (System/Light/Dark) is persisted to `localStorage`. Empty state shown when no accounts are linked.
+- **Components:** Full dashboard UI — metric cards, tabbed work item and PR lists, animated numbers, theme toggle, header with refresh timestamp, PR/work item detail views. Theme preference (System/Light/Dark) is persisted to `localStorage`. Empty state shown when no accounts are linked. `Home.razor` fetches rich details on demand (`FetchWorkItemDetailsAsync`, `FetchGitHubIssueDetailsAsync`, `FetchPrDescriptionAsync`) when items are expanded — these call ADO/GitHub APIs directly using tokens from `SessionTokenStore`.
 - **`GitHubProvider`:** Fetches issues and PRs from monitored repos via GitHub GraphQL API. Monitors only repos in `token.MonitoredRepos` (empty = no data). Uses alias-based multi-repo queries to batch all repos into a single GraphQL request. Handles 403/429 gracefully.
 - **`AdoProvider`:** Fetches work items and PRs from Azure DevOps via the `Microsoft.TeamFoundationServer.Client` SDK using `VssBasicCredential` (PAT). Monitors only projects in `token.MonitoredProjects` (empty = no data). Work items fetched via WIQL scoped to team area paths; PRs fetched per repo via `GitHttpClient`. Avatar images for ADO users are proxied through a local `/ado-avatar` endpoint.
 - **`AggregateDataProvider`:** Implements `IDataProvider` by fanning out to all per-account providers in parallel. Isolates provider failures — errors are logged but don't crash the dashboard. Registered as the scoped `IDataProvider` in `Program.cs`.
@@ -52,18 +52,16 @@ public interface IDataProvider
 }
 
 public record DashboardData(
-    IEnumerable<WorkItem> AssignedWorkItems,
-    IEnumerable<WorkItem> UnassignedWorkItems,
-    IEnumerable<PullRequest> AssignedPullRequests,
-    IEnumerable<PullRequest> UnassignedPullRequests);
+    IEnumerable<WorkItem> WorkItems,
+    IEnumerable<PullRequest> PullRequests);
 ```
 
-`AggregateDataProvider` constructs per-account provider instances and merges their results. A `GitHubProvider` is constructed for each linked `GitHubAccountToken`; an `AdoProvider` is constructed for each linked `MicrosoftAccountToken`.
+Providers return all relevant items for the user; the UI layer (`Home.razor`) separates them into assigned vs. unassigned display buckets using `IsAssignedToCurrentUser`/`WasCreatedByCurrentUser` flags on each item. `AggregateDataProvider` constructs per-account provider instances and merges their results. A `GitHubProvider` is constructed for each linked `GitHubAccountToken`; an `AdoProvider` is constructed for each linked `MicrosoftAccountToken`.
 
 **GitHub provider details:**
 - Uses GitHub GraphQL API (not REST) to fetch issues and PRs from all monitored repos in a single request.
 - Issues are mapped to `WorkItem`; type is inferred from labels (bug, epic, feature, story, user story → `WorkItemType` enum).
-- PRs assigned to the user or where the user is a requested reviewer → assigned PRs. Open non-draft PRs with no assignees/reviewers (and where the user is not a reviewer) → unassigned PRs.
+- PRs included if: user is assignee OR user is reviewer OR (no assignees AND no reviewers AND not draft). `IsAssignedToCurrentUser` is set when user is assignee or reviewer; `WasCreatedByCurrentUser` is set when user is the PR author.
 - Reviewer votes are derived from submitted reviews (APPROVED → `ReviewerVote.Approved`, CHANGES_REQUESTED → `ReviewerVote.Rejected`). Self-assigned reviewers who submitted a non-None review but were not in `reviewRequests` are included.
 - PRs carry `Url`, `MergeStatus` ("Conflicts" if `mergeable == CONFLICTING`), `AutoComplete`, `Labels`, and `LinkedWorkItemIds`/`LinkedWorkItemUrls` (from `closingIssuesReferences`).
 - Uses `GitHubJsonContext` (source-generated JSON) for serialization performance.
@@ -73,7 +71,7 @@ public record DashboardData(
 - Work items fetched via WIQL (`WorkItemTrackingHttpClient`) scoped to team area paths; skipped if `project.TeamNames` is empty. Supports multiple teams per project — results are union-deduplicated.
 - Area path filter is built from `WorkHttpClient.GetTeamFieldValuesAsync`, respecting `IncludeChildren`.
 - PRs fetched via `GitHttpClient` per repo in `project.RepoNames`; skipped if `RepoNames` is empty.
-- PRs where the user is the **author** OR a reviewer are included in assigned PRs (previously reviewer-only).
+- PRs included if: user is author OR reviewer OR (not draft AND no reviewers). `IsAssignedToCurrentUser` is set when user is a reviewer; `WasCreatedByCurrentUser` is set when user is the PR author.
 - Reviewer votes are mapped from ADO vote integers: 10=Approved, 5=ApprovedWithSuggestions, -5=WaitingForAuthor, -10=Rejected.
 - PRs carry `Url`, `MergeStatus`, `AutoComplete`, `Labels`, `LinkedWorkItemIds`, and `LinkedWorkItemUrls`.
 - ADO avatar images require PAT auth; they are proxied through `GET /ado-avatar?t=<token>`. The token is a Data Protection–encrypted string (`"Nexus.AvatarProxy.v1"` purpose) containing `"{pat}|{imageUrl}"`. The endpoint fetches the image server-side and streams it back.
@@ -119,7 +117,9 @@ public class AdoMonitoredProject
 Key model types:
 
 ```csharp
-// Reviewers on PRs now carry a vote
+public enum DataProvider { GitHub, AzureDevOps }
+
+// Reviewers on PRs carry a vote
 public enum ReviewerVote { None, Approved, ApprovedWithSuggestions, WaitingForAuthor, Rejected }
 public record ReviewerReference(UserReference User, ReviewerVote Vote);
 
@@ -129,21 +129,59 @@ public record UserReference(string Name, string? AvatarUrl)
     public string DisplayName { get; }  // re-orders "Last, First" → "First Last"
 }
 
-// PullRequest carries additional detail fields
+public record RepoBranch(string Repository, string Branch);
+
+public record WorkItem(
+    string Id,
+    WorkItemType Type,
+    string Title,
+    string? Description,
+    UserReference Creator,
+    UserReference? Assignee,
+    WorkItemStatus Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<string> Labels,
+    string? Url = null,
+    DataProvider Provider = DataProvider.GitHub
+);
+
 public record PullRequest(
-    ...,
-    IReadOnlyList<ReviewerReference> Reviewers,  // was IReadOnlyList<UserReference>
-    ...,
+    string Id,
+    string Title,
+    string? Description,
+    UserReference Creator,
+    RepoBranch Source,
+    RepoBranch Target,
+    IReadOnlyList<UserReference> Assignees,
+    IReadOnlyList<ReviewerReference> Reviewers,
+    PullRequestStatus Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
     string? Url = null,
     string? MergeStatus = null,
     bool AutoComplete = false,
     IReadOnlyList<string>? Labels = null,
     IReadOnlyList<string>? LinkedWorkItemIds = null,
-    IReadOnlyDictionary<string, string>? LinkedWorkItemUrls = null
+    IReadOnlyDictionary<string, string>? LinkedWorkItemUrls = null,
+    DataProvider Provider = DataProvider.GitHub,
+    bool IsAssignedToCurrentUser = false,
+    bool WasCreatedByCurrentUser = false
 );
 
-// WorkItem now has a direct URL
-public record WorkItem(..., string? Url = null);
+// Rich work item metadata fetched on demand (not from provider)
+public record WorkItemDetails(
+    string? AcceptanceCriteria = null,
+    string? Priority = null,
+    string? IterationPath = null,
+    string? AreaPath = null,
+    string? Effort = null,        // pre-formatted: "5 pts" or "3 h"
+    string? RemainingWork = null, // pre-formatted: "2 h"
+    string? ParentId = null,
+    string? ParentUrl = null,
+    string? Milestone = null,
+    int? CommentCount = null
+);
 ```
 
 `SessionTokenStore` (scoped) owns the in-memory cache and all reads/writes:
