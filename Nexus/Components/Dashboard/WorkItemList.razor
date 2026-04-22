@@ -1,16 +1,19 @@
 @inject IJSRuntime JS
+@using Markdig
 
 <MudDataGrid Elevation="0" Class="bordered" T="WorkItem" Items="@_items" Hover="true" SortMode="SortMode.Single"
-             RowClick="@OnRowClick" RowStyleFunc="@RowStyle">
+             RowClick="@OnRowClick" RowStyleFunc="@RowStyle" RowClassFunc="@RowClass">
     <NoRecordsContent>
         <MudText Typo="Typo.body2" Style="opacity:0.5;padding:1rem;">No work items.</MudText>
     </NoRecordsContent>
     <ColGroup>
-        <col style="width: 12%;" />
-        <col style="width: 73%;" />
+        <col style="width: 5%;" />
+        <col style="width: 10%;" />
+        <col style="width: 70%;" />
         <col style="width: 15%;" />
     </ColGroup>
     <Columns>
+        <HierarchyColumn T="WorkItem" />
         <PropertyColumn Property="x => x.Id" Title="ID">
             <CellTemplate>
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
@@ -41,26 +44,203 @@
             </CellTemplate>
         </PropertyColumn>
     </Columns>
+    <ChildRowContent>
+        @{
+            var wi = context.Item;
+            EnsureDetailsLoaded(wi);
+            var details = _fetchedDetails.TryGetValue(wi.Id, out var d) ? d : null;
+        }
+        <div style="padding:0.75rem 1rem 0.75rem 2.5rem;display:flex;flex-direction:column;gap:0.5rem;">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">
+                    @if (wi.Url is not null)
+                    {
+                        <a href="@wi.Url" target="_blank" style="color:inherit;text-decoration:none;"
+                           onmouseover="this.style.textDecoration='underline'"
+                           onmouseout="this.style.textDecoration='none'">@wi.Title</a>
+                    }
+                    else
+                    {
+                        @wi.Title
+                    }
+                </MudText>
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudChip T="string" Size="Size.Small" Icon="@TypeIcon(wi.Type)" Color="@TypeColor(wi.Type)"
+                             Variant="Variant.Outlined" Style="font-weight:600;">@SplitPascal(wi.Type)</MudChip>
+                    <MudChip T="string" Size="Size.Small" Icon="@StatusIcon(wi.Status)" Color="@StatusColor(wi.Status)"
+                             Variant="Variant.Outlined" Style="font-weight:600;"> @SplitPascal(wi.Status)</MudChip>
+                    @if (details?.Priority is { } priority)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                                 Icon="@Icons.Material.Filled.PriorityHigh" Style="width:fit-content;">P@priority</MudChip>
+                    }
+                </MudStack>
+            </MudStack>
+            @if (details is { IterationPath: not null } or { AreaPath: not null })
+            {
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    @if (details?.IterationPath is { } iter)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                                 Icon="@Icons.Material.Filled.Refresh" Style="width:fit-content;">
+                            @iter.Split('\\').Last()
+                        </MudChip>
+                    }
+                    @if (details?.AreaPath is { } area)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                                 Icon="@Icons.Material.Filled.Folder" Style="width:fit-content;">@area</MudChip>
+                    }
+                </MudStack>
+            }
+            @if (_loadingDetails.Contains(wi.Id))
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            @if (!string.IsNullOrWhiteSpace(wi.Description))
+            {
+                <div class="prerendered-description">@((MarkupString)RenderContent(wi.Description))</div>
+            }
+            @if (!string.IsNullOrWhiteSpace(details?.AcceptanceCriteria))
+            {
+                <div>
+                    <MudText Typo="Typo.caption" Style="opacity:0.5;font-weight:600;display:block;margin-bottom:0.25rem;">
+                        Acceptance Criteria
+                    </MudText>
+                    <div class="prerendered-description">@((MarkupString)RenderContent(details.AcceptanceCriteria!))</div>
+                </div>
+            }
+            @if (details is { Effort: not null } or { RemainingWork: not null })
+            {
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    @if (details?.Effort is { } effort)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                                 Icon="@Icons.Material.Filled.Speed" Style="width:fit-content;">@effort</MudChip>
+                    }
+                    @if (details?.RemainingWork is { } rem)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                                 Icon="@Icons.Material.Filled.HourglassEmpty" Style="width:fit-content;">@rem left</MudChip>
+                    }
+                </MudStack>
+            }
+            @if (details?.ParentId is { } parentId)
+            {
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.caption" Style="opacity:0.5;">Parent:</MudText>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                             Href="@details.ParentUrl" Target="@(details.ParentUrl is not null ? "_blank" : null)"
+                             Style="width:fit-content;">#@parentId</MudChip>
+                </MudStack>
+            }
+            @if (details?.Milestone is { } milestone)
+            {
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudIcon Icon="@Icons.Material.Filled.Flag" Size="Size.Small" Style="opacity:0.5;" />
+                    <MudText Typo="Typo.caption">@milestone</MudText>
+                </MudStack>
+            }
+            @if (wi.Labels.Count > 0)
+            {
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                    @foreach (var label in wi.Labels)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Style="width:fit-content;">@label</MudChip>
+                    }
+                </MudStack>
+            }
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                @if (wi.Assignee is not null)
+                {
+                    <MudText Typo="Typo.caption" Style="opacity:0.5;min-width:4rem;">Assigned:</MudText>
+                    <Avatar User="@wi.Assignee" />
+                    <MudDivider Vertical="true" FlexItem="true" Style="margin:0 0.25rem;" />
+                }
+                <MudText Typo="Typo.caption" Style="opacity:0.5;min-width:4rem;">Creator:</MudText>
+                <Avatar User="@wi.Creator" />
+                @if (details?.CommentCount is { } cc and > 0)
+                {
+                    <MudDivider Vertical="true" FlexItem="true" Style="margin:0 0.25rem;" />
+                    <MudIcon Icon="@Icons.Material.Filled.Comment" Size="Size.Small" Style="opacity:0.5;" />
+                    <MudText Typo="Typo.caption" Style="opacity:0.6;">@cc</MudText>
+                }
+            </MudStack>
+            <MudText Typo="Typo.caption" Style="opacity:0.4;">
+                Opened @wi.CreatedAt.ToString("MMM d, yyyy") by @wi.Creator.DisplayName
+            </MudText>
+        </div>
+    </ChildRowContent>
 </MudDataGrid>
 
 @code {
     [Parameter, EditorRequired] public IEnumerable<WorkItem>? Items { get; set; }
-[Parameter] public string? SearchTerm { get; set; }
+    [Parameter] public string? SearchTerm { get; set; }
     [Parameter] public HashSet<string>? AssignedItemIds { get; set; }
+    [Parameter] public Func<WorkItem, Task<WorkItemDetails?>>? FetchDetails { get; set; }
 
-    private string? RowStyle(WorkItem item, int _)
+    // Stable object references so MudDataGrid's expanded-row tracking survives data refreshes.
+    private readonly Dictionary<string, WorkItem> _stableItems = new();
+
+    private readonly Dictionary<string, WorkItemDetails?> _fetchedDetails = new();
+    private readonly HashSet<string> _loadingDetails = new();
+
+    public override async Task SetParametersAsync(ParameterView parameters)
     {
-        var cursor = item.Url is not null ? "cursor:pointer;" : null;
-        var bg = AssignedItemIds?.Contains(item.Id) == true ? "background-color:var(--mud-palette-primary-hover);" : null;
-        return cursor is not null || bg is not null ? $"{bg}{cursor}" : null;
+        if (parameters.TryGetValue<IEnumerable<WorkItem>?>(nameof(Items), out var newItems))
+        {
+            if (newItems is not null)
+            {
+                var freshIds = newItems.Select(x => x.Id).ToHashSet();
+                foreach (var id in _stableItems.Keys.Except(freshIds).ToList())
+                    _stableItems.Remove(id);
+                foreach (var wi in newItems)
+                    _stableItems.TryAdd(wi.Id, wi);
+            }
+            else
+            {
+                _stableItems.Clear();
+            }
+        }
+        await base.SetParametersAsync(parameters);
     }
+
+    private void EnsureDetailsLoaded(WorkItem wi)
+    {
+        if (FetchDetails is null) return;
+        if (_fetchedDetails.ContainsKey(wi.Id) || _loadingDetails.Contains(wi.Id)) return;
+        _loadingDetails.Add(wi.Id);
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                _fetchedDetails[wi.Id] = await FetchDetails(wi);
+            }
+            catch
+            {
+                _fetchedDetails[wi.Id] = null;
+            }
+            finally
+            {
+                _loadingDetails.Remove(wi.Id);
+                StateHasChanged();
+            }
+        });
+    }
+
+    private string? RowStyle(WorkItem item, int _) =>
+        item.Url is not null ? "cursor:pointer;" : null;
+
+    private string RowClass(WorkItem item, int _) =>
+        AssignedItemIds?.Contains(item.Id) == true ? "assigned-row" : "";
 
     private List<WorkItem> _items
     {
         get
         {
-            if (Items is null) return [];
-            var filtered = string.IsNullOrWhiteSpace(SearchTerm) ? Items : Items.Where(x => FuzzyMatch(SearchTerm, x));
+            if (_stableItems.Count == 0) return [];
+            var source = _stableItems.Values;
+            var filtered = string.IsNullOrWhiteSpace(SearchTerm) ? source : source.Where(x => FuzzyMatch(SearchTerm, x));
             return filtered
                 .OrderByDescending(x => AssignedItemIds?.Contains(x.Id) == true)
                 .ThenByDescending(x => x.UpdatedAt)
@@ -88,6 +268,83 @@
     {
         if (args.Item?.Url is { } url)
             await JS.InvokeVoidAsync("open", url, "_blank");
+    }
+
+    private static readonly MarkdownPipeline _mdPipeline = new MarkdownPipelineBuilder()
+        .UseAutoLinks()
+        .UseTaskLists()
+        .UseSoftlineBreakAsHardlineBreak()
+        .UseImagePlaceholders()
+        .Build();
+
+    private static readonly System.Text.RegularExpressions.Regex _imgTagRegex =
+        new(@"<img\b[^>]*/?>",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex _altAttrRegex =
+        new(@"\balt=""(?<alt>[^""]*)""",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex _dangerTagRegex =
+        new(@"<(script|iframe|style)\b[^>]*>[\s\S]*?</\1>",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex _styleAttrRegex =
+        new(@"\s+style=(?:""[^""]*""|'[^']*')",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex _classAttrRegex =
+        new(@"\s+class=(?:""[^""]*""|'[^']*')",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex _colorAttrRegex =
+        new(@"\s+(?:color|bgcolor)=(?:""[^""]*""|'[^']*'|[^\s>]+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex _fontTagRegex =
+        new(@"</?font\b[^>]*>",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // Render as HTML if content looks like HTML (ADO rich-text fields), otherwise render as Markdown.
+    private static string RenderContent(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return "";
+        return content.TrimStart().StartsWith('<') ? SanitizeHtml(content) : RenderMarkdown(content);
+    }
+
+    private static string SanitizeHtml(string html)
+    {
+        html = _dangerTagRegex.Replace(html, "");  // remove script/iframe/style blocks
+        html = _styleAttrRegex.Replace(html, "");  // strip inline style= attributes
+        html = _classAttrRegex.Replace(html, "");  // strip class= attributes
+        html = _colorAttrRegex.Replace(html, "");  // strip color=/bgcolor= attributes
+        html = _fontTagRegex.Replace(html, "");    // strip <font> elements
+        return _imgTagRegex.Replace(html, m =>
+        {
+            var altMatch = _altAttrRegex.Match(m.Value);
+            var label = altMatch.Success && !string.IsNullOrWhiteSpace(altMatch.Groups["alt"].Value)
+                ? altMatch.Groups["alt"].Value : "image";
+            return $"<span class=\"pr-image-placeholder\">&#x1F5BC; {System.Net.WebUtility.HtmlEncode(label)}</span>";
+        });
+    }
+
+    private static string RenderMarkdown(string markdown)
+    {
+        var html = Markdig.Markdown.ToHtml(markdown, _mdPipeline);
+        return _imgTagRegex.Replace(html, m =>
+        {
+            var altMatch = _altAttrRegex.Match(m.Value);
+            var label = altMatch.Success && !string.IsNullOrWhiteSpace(altMatch.Groups["alt"].Value)
+                ? altMatch.Groups["alt"].Value : "image";
+            return $"<span class=\"pr-image-placeholder\">&#x1F5BC; {System.Net.WebUtility.HtmlEncode(label)}</span>";
+        });
     }
 
     private static string SplitPascal<T>(T value) where T : Enum

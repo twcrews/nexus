@@ -1,8 +1,11 @@
 @inject IDataProvider DataProvider
 @inject RefreshService RefreshService
 @inject SessionTokenStore TokenStore
+@inject IHttpClientFactory HttpClientFactory
 @implements IDisposable
+@using System.Text.Json
 @using Microsoft.TeamFoundation.SourceControl.WebApi
+@using Microsoft.TeamFoundation.WorkItemTracking.WebApi
 @using Microsoft.VisualStudio.Services.Common
 @using Microsoft.VisualStudio.Services.WebApi
 
@@ -56,7 +59,8 @@ else
                     </div>
                 </MudStack>
                 <WorkItemList Items="_workItems" SearchTerm="@_workItemSearch"
-                             AssignedItemIds="@_assignedWorkItemIds" />
+                             AssignedItemIds="@_assignedWorkItemIds"
+                             FetchDetails="@FetchWorkItemDetailsAsync" />
             </MudItem>
             <MudItem xs="12" lg="6">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween"
@@ -139,6 +143,132 @@ else
         {
             await RefreshAsync();
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<WorkItemDetails?> FetchWorkItemDetailsAsync(WorkItem wi)
+    {
+        if (wi.Url is not { } url) return null;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+
+        if (uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
+            return await FetchGitHubIssueDetailsAsync(uri);
+
+        var path = uri.AbsolutePath.TrimStart('/');
+        var wiIdx = path.IndexOf("/_workitems/edit/", StringComparison.Ordinal);
+        if (wiIdx < 0) return null;
+
+        var beforeWi = path[..wiIdx];
+        var afterEdit = path[(wiIdx + "/_workitems/edit/".Length)..];
+        if (!int.TryParse(afterEdit.Split('/')[0], out var wiId)) return null;
+
+        string orgUrl, projectName;
+        if (uri.Host.Equals("dev.azure.com", StringComparison.OrdinalIgnoreCase))
+        {
+            var slashIdx = beforeWi.IndexOf('/');
+            if (slashIdx < 0) return null;
+            orgUrl = $"{uri.Scheme}://dev.azure.com/{beforeWi[..slashIdx]}";
+            projectName = Uri.UnescapeDataString(beforeWi[(slashIdx + 1)..]);
+        }
+        else
+        {
+            orgUrl = $"{uri.Scheme}://{uri.Host}";
+            projectName = Uri.UnescapeDataString(beforeWi);
+        }
+
+        var token = TokenStore.GetLinkedAccounts().MicrosoftAccounts
+            .FirstOrDefault(a => string.Equals(
+                a.OrgUrl.TrimEnd('/'), orgUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase));
+        if (token is null) return null;
+
+        try
+        {
+            var connection = new VssConnection(new Uri(orgUrl), new VssBasicCredential(string.Empty, token.PersonalAccessToken));
+            var client = await connection.GetClientAsync<WorkItemTrackingHttpClient>();
+
+            string[] fields = [
+                "Microsoft.VSTS.Common.AcceptanceCriteria",
+                "Microsoft.VSTS.Common.Priority",
+                "System.IterationPath",
+                "System.AreaPath",
+                "Microsoft.VSTS.Scheduling.StoryPoints",
+                "Microsoft.VSTS.Scheduling.Effort",
+                "Microsoft.VSTS.Scheduling.RemainingWork",
+                "System.Parent",
+            ];
+
+            var item = await client.GetWorkItemAsync(wiId, fields);
+            string? Get(string field) => item.Fields.TryGetValue(field, out var v) ? v?.ToString() : null;
+
+            var storyPoints = Get("Microsoft.VSTS.Scheduling.StoryPoints");
+            var effort = Get("Microsoft.VSTS.Scheduling.Effort");
+            var effortDisplay = storyPoints is not null ? $"{storyPoints} pts"
+                              : effort is not null ? $"{effort} h"
+                              : null;
+
+            var remainingWork = Get("Microsoft.VSTS.Scheduling.RemainingWork");
+
+            var parentId = Get("System.Parent");
+            var parentUrl = parentId is not null
+                ? $"{orgUrl.TrimEnd('/')}/{Uri.EscapeDataString(projectName)}/_workitems/edit/{parentId}"
+                : null;
+
+            return new WorkItemDetails(
+                AcceptanceCriteria: Get("Microsoft.VSTS.Common.AcceptanceCriteria"),
+                Priority: Get("Microsoft.VSTS.Common.Priority"),
+                IterationPath: Get("System.IterationPath"),
+                AreaPath: Get("System.AreaPath"),
+                Effort: effortDisplay,
+                RemainingWork: remainingWork is not null ? $"{remainingWork} h" : null,
+                ParentId: parentId,
+                ParentUrl: parentUrl);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<WorkItemDetails?> FetchGitHubIssueDetailsAsync(Uri uri)
+    {
+        var segments = uri.AbsolutePath.Trim('/').Split('/');
+        if (segments.Length < 4 || !segments[2].Equals("issues", StringComparison.OrdinalIgnoreCase)) return null;
+        if (!int.TryParse(segments[3], out var number)) return null;
+        var owner = segments[0];
+        var repo = segments[1];
+
+        var ghToken = TokenStore.GetLinkedAccounts().GitHubAccounts
+            .FirstOrDefault(a => a.MonitoredRepos.Any(r =>
+                r.Equals($"{owner}/{repo}", StringComparison.OrdinalIgnoreCase)))
+            ?? TokenStore.GetLinkedAccounts().GitHubAccounts.FirstOrDefault();
+        if (ghToken is null) return null;
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient("GitHub");
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ghToken.PersonalAccessToken);
+
+            using var response = await client.GetAsync($"repos/{owner}/{repo}/issues/{number}");
+            if (!response.IsSuccessStatusCode) return null;
+
+            using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            var root = doc.RootElement;
+
+            string? milestone = null;
+            if (root.TryGetProperty("milestone", out var ms) && ms.ValueKind == JsonValueKind.Object
+                && ms.TryGetProperty("title", out var mt))
+                milestone = mt.GetString();
+
+            int? commentCount = null;
+            if (root.TryGetProperty("comments", out var cc))
+                commentCount = cc.GetInt32();
+
+            return new WorkItemDetails(Milestone: milestone, CommentCount: commentCount);
+        }
+        catch
+        {
+            return null;
         }
     }
 

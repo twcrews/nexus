@@ -3,7 +3,7 @@
 @using Nexus.Services
 
 <MudDataGrid Elevation="0" Class="bordered" T="PullRequest" Items="@_items" SortMode="SortMode.Single" Hover="true"
-             RowClick="@OnRowClick" RowStyleFunc="@RowStyle">
+             RowClick="@OnRowClick" RowStyleFunc="@RowStyle" RowClassFunc="@RowClass">
     <NoRecordsContent>
         <MudText Typo="Typo.body2" Style="opacity:0.5;padding:1rem;">No pull requests.</MudText>
     </NoRecordsContent>
@@ -136,7 +136,7 @@
                 }
                 else if (!string.IsNullOrWhiteSpace(desc))
                 {
-                    <div class="pr-description">@((MarkupString)RenderMarkdown(desc))</div>
+                    <div class="prerendered-description">@((MarkupString)RenderMarkdown(desc))</div>
                 }
                 @if (pr.LinkedWorkItemIds is { Count: > 0 })
                 {
@@ -213,12 +213,11 @@
         });
     }
 
-    private string? RowStyle(PullRequest item, int _)
-    {
-        var cursor = item.Url is not null ? "cursor:pointer;" : null;
-        var bg = AssignedPrIds?.Contains(item.Id) == true ? "background-color:var(--mud-palette-primary-hover);" : null;
-        return cursor is not null || bg is not null ? $"{bg}{cursor}" : null;
-    }
+    private string? RowStyle(PullRequest item, int _) =>
+        item.Url is not null ? "cursor:pointer;" : null;
+
+    private string RowClass(PullRequest item, int _) =>
+        AssignedPrIds?.Contains(item.Id) == true ? "assigned-row" : "";
 
     private List<PullRequest> _items
     {
