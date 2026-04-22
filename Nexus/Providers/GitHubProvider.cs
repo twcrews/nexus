@@ -100,6 +100,13 @@ public class GitHubProvider(
                 reviewRequests(first: 20) {
                   nodes { requestedReviewer { ... on User { login avatarUrl name } } }
                 }
+                reviews(first: 50) {
+                  nodes { author { login avatarUrl ... on User { name } } state }
+                }
+                mergeable
+                autoMergeRequest { enabledAt }
+                labels(first: 20) { nodes { name } }
+                closingIssuesReferences(first: 20) { nodes { number url } }
               }
             }
             """;
@@ -185,15 +192,47 @@ public class GitHubProvider(
             .ToList();
         var assigneeLogins = node.Assignees.Nodes.Select(u => u.Login).ToList();
 
-        var reviewers = node.ReviewRequests.Nodes
-            .Select(r => r.RequestedReviewer)
-            .OfType<GqlActor>()
-            .Select(u => new UserReference(u.Name ?? u.Login, u.AvatarUrl))
-            .ToList();
-        var reviewerLogins = node.ReviewRequests.Nodes
-            .Select(r => r.RequestedReviewer?.Login)
-            .OfType<string>()
-            .ToList();
+        // Build vote map from submitted reviews (latest state per author wins)
+        var voteByLogin = new Dictionary<string, ReviewerVote>(StringComparer.OrdinalIgnoreCase);
+        foreach (var review in node.Reviews?.Nodes ?? [])
+        {
+            if (review.Author?.Login is not { } login) continue;
+            var vote = review.State switch
+            {
+                "APPROVED" => ReviewerVote.Approved,
+                "CHANGES_REQUESTED" => ReviewerVote.Rejected,
+                _ => ReviewerVote.None
+            };
+            voteByLogin[login] = vote;
+        }
+
+        // Requested reviewers (preserve order, apply vote if submitted)
+        var requestedLogins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var reviewers = new List<ReviewerReference>();
+        foreach (var req in node.ReviewRequests.Nodes)
+        {
+            if (req.RequestedReviewer is not { } actor) continue;
+            requestedLogins.Add(actor.Login);
+            reviewers.Add(new ReviewerReference(
+                new UserReference(actor.Name ?? actor.Login, actor.AvatarUrl),
+                voteByLogin.GetValueOrDefault(actor.Login, ReviewerVote.None)));
+        }
+
+        // Add self-assigned reviewers who submitted a non-None review but weren't in reviewRequests
+        foreach (var review in node.Reviews?.Nodes ?? [])
+        {
+            if (review.Author?.Login is not { } login) continue;
+            if (requestedLogins.Contains(login)) continue;
+            if (voteByLogin.TryGetValue(login, out var vote) && vote != ReviewerVote.None)
+            {
+                reviewers.Add(new ReviewerReference(
+                    new UserReference(review.Author.Name ?? login, review.Author.AvatarUrl),
+                    vote));
+                requestedLogins.Add(login);
+            }
+        }
+
+        var reviewerLogins = requestedLogins.ToList();
 
         var headRepo = node.HeadRepository?.NameWithOwner ?? "unknown/unknown";
         var baseRepo = node.BaseRepository?.NameWithOwner ?? headRepo;
@@ -210,7 +249,14 @@ public class GitHubProvider(
             Status: node.IsDraft ? PullRequestStatus.Draft : PullRequestStatus.Open,
             CreatedAt: node.CreatedAt,
             UpdatedAt: node.UpdatedAt,
-            Url: node.Url
+            Url: node.Url,
+            MergeStatus: node.Mergeable == "CONFLICTING" ? "Conflicts" : null,
+            AutoComplete: node.AutoMergeRequest is not null,
+            Labels: node.Labels?.Nodes.Select(l => l.Name).ToList(),
+            LinkedWorkItemIds: node.ClosingIssues?.Nodes.Select(i => i.Number.ToString()).ToList(),
+            LinkedWorkItemUrls: node.ClosingIssues?.Nodes
+                .Where(i => i.Url is not null)
+                .ToDictionary(i => i.Number.ToString(), i => i.Url!)
         );
 
         return new MappedPr(pr, assigneeLogins, reviewerLogins);
@@ -276,7 +322,12 @@ internal record GqlPr(
     [property: JsonPropertyName("author")] GqlActor? Author,
     [property: JsonPropertyName("assignees")] GqlUserConnection Assignees,
     [property: JsonPropertyName("reviewRequests")] GqlReviewRequestConnection ReviewRequests,
-    [property: JsonPropertyName("url")] string? Url);
+    [property: JsonPropertyName("url")] string? Url,
+    [property: JsonPropertyName("reviews")] GqlPrReviewConnection? Reviews,
+    [property: JsonPropertyName("mergeable")] string? Mergeable,
+    [property: JsonPropertyName("autoMergeRequest")] GqlAutoMergeRequest? AutoMergeRequest,
+    [property: JsonPropertyName("labels")] GqlLabelConnection? Labels,
+    [property: JsonPropertyName("closingIssuesReferences")] GqlClosingIssueConnection? ClosingIssues);
 
 internal record GqlActor(
     [property: JsonPropertyName("login")] string Login,
@@ -305,6 +356,23 @@ internal record GqlLabelConnection(
 
 internal record GqlLabel(
     [property: JsonPropertyName("name")] string Name);
+
+internal record GqlPrReviewConnection(
+    [property: JsonPropertyName("nodes")] List<GqlPrReview> Nodes);
+
+internal record GqlPrReview(
+    [property: JsonPropertyName("author")] GqlActor? Author,
+    [property: JsonPropertyName("state")] string State);
+
+internal record GqlAutoMergeRequest(
+    [property: JsonPropertyName("enabledAt")] DateTimeOffset? EnabledAt);
+
+internal record GqlClosingIssueConnection(
+    [property: JsonPropertyName("nodes")] List<GqlClosingIssue> Nodes);
+
+internal record GqlClosingIssue(
+    [property: JsonPropertyName("number")] int Number,
+    [property: JsonPropertyName("url")] string? Url);
 
 [JsonSerializable(typeof(GqlRequest))]
 [JsonSerializable(typeof(GqlResponse))]

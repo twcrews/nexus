@@ -37,8 +37,6 @@ public class AggregateDataProvider(
         LinkedAccounts accounts = session.GetLinkedAccounts();
         var providers = new List<IDataProvider>();
 
-        providers.AddRange(accounts.DummyAccounts.Select(t => (IDataProvider)new DummyProvider(t)));
-
         providers.AddRange(accounts.GitHubAccounts.Select(t =>
             (IDataProvider)new GitHubProvider(t, httpFactory,
                 loggerFactory.CreateLogger<GitHubProvider>())));

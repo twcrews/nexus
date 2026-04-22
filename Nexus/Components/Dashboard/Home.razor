@@ -2,6 +2,9 @@
 @inject RefreshService RefreshService
 @inject SessionTokenStore TokenStore
 @implements IDisposable
+@using Microsoft.TeamFoundation.SourceControl.WebApi
+@using Microsoft.VisualStudio.Services.Common
+@using Microsoft.VisualStudio.Services.WebApi
 
 <PageTitle>Nexus</PageTitle>
 
@@ -66,7 +69,8 @@ else
                     </div>
                 </MudStack>
                 <PullRequestList Items="_pullRequests" SearchTerm="@_prSearch"
-                                AssignedPrIds="@_assignedPrIds" />
+                                AssignedPrIds="@_assignedPrIds"
+                                FetchDescription="@FetchPrDescriptionAsync" />
             </MudItem>
         </MudGrid>
     </div>
@@ -135,6 +139,42 @@ else
         {
             await RefreshAsync();
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<string?> FetchPrDescriptionAsync(PullRequest pr)
+    {
+        if (pr.Url is null) return null;
+        if (!Uri.TryCreate(pr.Url, UriKind.Absolute, out var uri)) return null;
+
+        var path = uri.AbsolutePath.TrimStart('/');
+        var gitIdx = path.IndexOf("/_git/", StringComparison.Ordinal);
+        var prIdx = path.IndexOf("/pullrequest/", StringComparison.Ordinal);
+        if (gitIdx < 0 || prIdx < 0) return null;
+        if (!int.TryParse(path[(prIdx + "/pullrequest/".Length)..].Split('/')[0], out var prId)) return null;
+
+        var beforeGit = path[..gitIdx];
+        var project = Uri.UnescapeDataString(beforeGit[(beforeGit.LastIndexOf('/') + 1)..]);
+        var repo = Uri.UnescapeDataString(path[(gitIdx + "/_git/".Length)..prIdx]);
+        var orgUrl = uri.Host == "dev.azure.com"
+            ? $"{uri.Scheme}://{uri.Host}/{beforeGit[..beforeGit.IndexOf('/')]}"
+            : $"{uri.Scheme}://{uri.Host}";
+
+        var token = TokenStore.GetLinkedAccounts().MicrosoftAccounts
+            .FirstOrDefault(a => string.Equals(
+                a.OrgUrl.TrimEnd('/'), orgUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase));
+        if (token is null) return null;
+
+        try
+        {
+            var connection = new VssConnection(new Uri(orgUrl), new VssBasicCredential(string.Empty, token.PersonalAccessToken));
+            var client = await connection.GetClientAsync<GitHttpClient>();
+            var full = await client.GetPullRequestAsync(project, repo, prId);
+            return full.Description;
+        }
+        catch
+        {
+            return null;
         }
     }
 

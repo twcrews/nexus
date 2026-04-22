@@ -10,9 +10,14 @@ public record PullRequest(
     RepoBranch Source,
     RepoBranch Target,
     IReadOnlyList<UserReference> Assignees,
-    IReadOnlyList<UserReference> Reviewers,
+    IReadOnlyList<ReviewerReference> Reviewers,
     PullRequestStatus Status,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    string? Url = null
+    string? Url = null,
+    string? MergeStatus = null,
+    bool AutoComplete = false,
+    IReadOnlyList<string>? Labels = null,
+    IReadOnlyList<string>? LinkedWorkItemIds = null,
+    IReadOnlyDictionary<string, string>? LinkedWorkItemUrls = null
 );

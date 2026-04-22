@@ -1,15 +1,64 @@
-<MudTooltip Text="@User.DisplayName">
-    @if (!string.IsNullOrEmpty(User.AvatarUrl))
+@using Nexus.Models
+
+<MudTooltip Text="@TooltipText">
+    @if (Vote.HasValue)
     {
-        <img src="@User.AvatarUrl" alt="@User.Name"
-             style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;cursor:default;" />
+        <MudBadge Icon="@BadgeIcon" Color="@BadgeColor" Overlap="true" Bordered="true"
+                  Visible="@(Vote != ReviewerVote.None)">
+            @AvatarContent
+        </MudBadge>
     }
     else
     {
-        <MudAvatar Size="Size.Small" Style="width:24px;height:24px;font-size:0.75rem;">@User.DisplayName[..1]</MudAvatar>
+        @AvatarContent
     }
 </MudTooltip>
 
 @code {
     [Parameter, EditorRequired] public UserReference User { get; set; } = null!;
+    [Parameter] public ReviewerVote? Vote { get; set; }
+
+    private string TooltipText => Vote is { } v && v != ReviewerVote.None
+        ? $"{User.DisplayName} ({VoteLabel(v)})"
+        : User.DisplayName;
+
+    private string BadgeIcon => Vote switch
+    {
+        ReviewerVote.Approved => Icons.Material.Filled.Check,
+        ReviewerVote.ApprovedWithSuggestions => Icons.Material.Outlined.Check,
+        ReviewerVote.WaitingForAuthor => Icons.Material.Filled.HourglassEmpty,
+        ReviewerVote.Rejected => Icons.Material.Filled.Close,
+        _ => Icons.Material.Filled.Circle
+    };
+
+    private Color BadgeColor => Vote switch
+    {
+        ReviewerVote.Approved => Color.Success,
+        ReviewerVote.ApprovedWithSuggestions => Color.Warning,
+        ReviewerVote.WaitingForAuthor => Color.Warning,
+        ReviewerVote.Rejected => Color.Error,
+        _ => Color.Default
+    };
+
+    private RenderFragment AvatarContent => __builder =>
+    {
+        if (!string.IsNullOrEmpty(User.AvatarUrl))
+        {
+            <img src="@User.AvatarUrl" alt="@User.Name"
+                 style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;cursor:default;" />
+        }
+        else
+        {
+            <MudAvatar Size="Size.Small" Style="width:24px;height:24px;font-size:0.75rem;">@User.DisplayName[..1]</MudAvatar>
+        }
+    };
+
+    private static string VoteLabel(ReviewerVote v) => v switch
+    {
+        ReviewerVote.Approved => "Approved",
+        ReviewerVote.ApprovedWithSuggestions => "Approved with suggestions",
+        ReviewerVote.WaitingForAuthor => "Waiting for author",
+        ReviewerVote.Rejected => "Changes requested",
+        _ => ""
+    };
 }

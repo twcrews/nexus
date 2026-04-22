@@ -150,7 +150,17 @@ public class AdoProvider(
 
                 foreach (var pr in prs)
                 {
-                    var mapped = this.MapPullRequest(pr, repoName, project);
+                    IEnumerable<Microsoft.VisualStudio.Services.WebApi.ResourceRef> workItemRefs = [];
+                    try
+                    {
+                        workItemRefs = await client.GetPullRequestWorkItemRefsAsync(
+                            project.ProjectName, repoName, pr.PullRequestId);
+                    }
+                    catch { /* non-fatal */ }
+
+                    var mapped = this.MapPullRequest(pr, repoName, project,
+                        workItemRefs.Select(r => r.Id).ToList());
+
                     bool isAuthor = string.Equals(pr.CreatedBy?.UniqueName, token.Login, StringComparison.OrdinalIgnoreCase);
                     bool isReviewer = pr.Reviewers.Any(r =>
                         string.Equals(r.UniqueName, token.Login, StringComparison.OrdinalIgnoreCase));
@@ -235,8 +245,14 @@ public class AdoProvider(
         return $"/ado-avatar?t={Uri.EscapeDataString(protected_)}";
     }
 
-    private Models.PullRequest MapPullRequest(GitPullRequest pr, string repoName, AdoMonitoredProject project)
+    private Models.PullRequest MapPullRequest(GitPullRequest pr, string repoName, AdoMonitoredProject project,
+        List<string>? linkedWorkItemIds = null)
     {
+        var linkedWorkItemUrls = linkedWorkItemIds?.Count > 0
+            ? linkedWorkItemIds.ToDictionary(
+                id => id,
+                id => $"{project.OrgUrl.TrimEnd('/')}/{Uri.EscapeDataString(project.ProjectName)}/_workitems/edit/{id}")
+            : null;
         var status = pr.Status switch
         {
             AdoPrStatus.Active when pr.IsDraft == true => NexusPrStatus.Draft,
@@ -250,6 +266,15 @@ public class AdoProvider(
 
         var url = $"{project.OrgUrl.TrimEnd('/')}/{Uri.EscapeDataString(project.ProjectName)}/_git/{Uri.EscapeDataString(repoName)}/pullrequest/{pr.PullRequestId}";
 
+        var mergeStatus = pr.MergeStatus switch
+        {
+            Microsoft.TeamFoundation.SourceControl.WebApi.PullRequestAsyncStatus.Conflicts => "Conflicts",
+            Microsoft.TeamFoundation.SourceControl.WebApi.PullRequestAsyncStatus.RejectedByPolicy => "Policy blocked",
+            Microsoft.TeamFoundation.SourceControl.WebApi.PullRequestAsyncStatus.Failure => "Merge failed",
+            Microsoft.TeamFoundation.SourceControl.WebApi.PullRequestAsyncStatus.Queued => "Merge queued",
+            _ => (string?)null
+        };
+
         return new Models.PullRequest(
             Id: pr.PullRequestId.ToString(),
             Title: pr.Title,
@@ -259,13 +284,29 @@ public class AdoProvider(
             Target: new RepoBranch(repoName, BranchName(pr.TargetRefName)),
             Assignees: [],
             Reviewers: pr.Reviewers
-                .Select(r => new UserReference(r.DisplayName, ProxyAvatarUrl(r.ImageUrl)))
+                .Select(r => new ReviewerReference(
+                    new UserReference(r.DisplayName, ProxyAvatarUrl(r.ImageUrl)),
+                    MapVote(r.Vote)))
                 .ToList(),
             Status: status,
             CreatedAt: pr.CreationDate,
-            UpdatedAt: pr.CreationDate,
-            Url: url);
+            UpdatedAt: pr.LastMergeSourceCommit?.Committer?.Date is { } cd ? new DateTimeOffset(cd) : pr.CreationDate,
+            Url: url,
+            MergeStatus: mergeStatus,
+            AutoComplete: pr.AutoCompleteSetBy is not null,
+            Labels: pr.Labels?.Select(l => l.Name).ToList(),
+            LinkedWorkItemIds: linkedWorkItemIds,
+            LinkedWorkItemUrls: linkedWorkItemUrls);
     }
+
+    private static ReviewerVote MapVote(int vote) => vote switch
+    {
+        10 => ReviewerVote.Approved,
+        5 => ReviewerVote.ApprovedWithSuggestions,
+        -5 => ReviewerVote.WaitingForAuthor,
+        -10 => ReviewerVote.Rejected,
+        _ => ReviewerVote.None
+    };
 
     private static string? BuildAreaPathFilter(TeamFieldValues teamFieldValues)
     {

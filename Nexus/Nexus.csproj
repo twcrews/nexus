@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+<PackageReference Include="Markdig" Version="1.1.3" />
 <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="20.256.2" />
     <PackageReference Include="MudBlazor" Version="9.3.0" />
     <PackageReference Include="MudBlazor.FontIcons.MaterialSymbols" Version="1.4.0" />
