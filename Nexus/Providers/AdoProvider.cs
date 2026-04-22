@@ -20,14 +20,12 @@ public class AdoProvider(
     public async Task<DashboardData> GetDashboardDataAsync()
     {
         if (token.MonitoredProjects.Count == 0)
-            return new DashboardData([], [], [], []);
+            return new DashboardData([], []);
 
         var credentials = new VssBasicCredential(string.Empty, token.PersonalAccessToken);
 
-        var assignedWorkItems = new List<Models.WorkItem>();
-        var unassignedWorkItems = new List<Models.WorkItem>();
-        var assignedPrs = new List<Models.PullRequest>();
-        var unassignedPrs = new List<Models.PullRequest>();
+        var workItems = new List<Models.WorkItem>();
+        var pullRequests = new List<Models.PullRequest>();
 
         await Task.WhenAll(token.MonitoredProjects.Select(async project =>
         {
@@ -35,15 +33,13 @@ public class AdoProvider(
             {
                 var connection = new VssConnection(new Uri(project.OrgUrl), credentials);
 
-                var (wi, uwi) = await FetchWorkItemsAsync(connection, project);
-                var (prs, uprs) = await FetchPullRequestsAsync(connection, project);
+                var wi = await FetchWorkItemsAsync(connection, project);
+                var prs = await FetchPullRequestsAsync(connection, project);
 
-                lock (assignedWorkItems)
+                lock (workItems)
                 {
-                    assignedWorkItems.AddRange(wi);
-                    unassignedWorkItems.AddRange(uwi);
-                    assignedPrs.AddRange(prs);
-                    unassignedPrs.AddRange(uprs);
+                    workItems.AddRange(wi);
+                    pullRequests.AddRange(prs);
                 }
             }
             catch (Exception ex)
@@ -53,14 +49,14 @@ public class AdoProvider(
             }
         }));
 
-        return new DashboardData(assignedWorkItems, unassignedWorkItems, assignedPrs, unassignedPrs);
+        return new DashboardData(workItems, pullRequests);
     }
 
-    private async Task<(List<Models.WorkItem> assigned, List<Models.WorkItem> unassigned)> FetchWorkItemsAsync(
+    private async Task<List<Models.WorkItem>> FetchWorkItemsAsync(
         VssConnection connection, AdoMonitoredProject project)
     {
         if (project.TeamNames.Count == 0)
-            return ([], []);
+            return [];
 
         Console.WriteLine($"\x1b[33m[ADO] Work items request → {token.Login} / {project.ProjectName} ({project.TeamNames.Count} teams)\x1b[0m");
 
@@ -71,8 +67,7 @@ public class AdoProvider(
             "System.AssignedTo", "System.CreatedBy", "System.Tags"
         ];
 
-        var assignedIds = new HashSet<int>();
-        var unassignedIds = new HashSet<int>();
+        var allIds = new HashSet<int>();
 
         var workClient = await connection.GetClientAsync<WorkHttpClient>();
 
@@ -112,37 +107,27 @@ public class AdoProvider(
             var assignedResult = await client.QueryByWiqlAsync(assignedWiql, top: 100);
             var unassignedResult = await client.QueryByWiqlAsync(unassignedWiql, top: 100);
 
-            foreach (var w in assignedResult.WorkItems) assignedIds.Add(w.Id);
-            foreach (var w in unassignedResult.WorkItems) unassignedIds.Add(w.Id);
+            foreach (var w in assignedResult.WorkItems) allIds.Add(w.Id);
+            foreach (var w in unassignedResult.WorkItems) allIds.Add(w.Id);
         }
 
-        // Items assigned to someone shouldn't appear in the unassigned list
-        unassignedIds.ExceptWith(assignedIds);
+        if (allIds.Count == 0)
+            return [];
 
-        var assignedDetails = assignedIds.Count > 0
-            ? await client.GetWorkItemsAsync(assignedIds, fields)
-            : [];
-        var unassignedDetails = unassignedIds.Count > 0
-            ? await client.GetWorkItemsAsync(unassignedIds, fields)
-            : [];
-
-        return (
-            assignedDetails.Select(wi => MapWorkItem(wi, project.OrgUrl, project.ProjectName)).ToList(),
-            unassignedDetails.Select(wi => MapWorkItem(wi, project.OrgUrl, project.ProjectName)).ToList()
-        );
+        var details = await client.GetWorkItemsAsync(allIds, fields);
+        return details.Select(wi => MapWorkItem(wi, project.OrgUrl, project.ProjectName)).ToList();
     }
 
-    private async Task<(List<Models.PullRequest> assigned, List<Models.PullRequest> unassigned)> FetchPullRequestsAsync(
+    private async Task<List<Models.PullRequest>> FetchPullRequestsAsync(
         VssConnection connection, AdoMonitoredProject project)
     {
         if (project.RepoNames.Count == 0)
-            return ([], []);
+            return [];
 
         Console.WriteLine($"\x1b[33m[ADO] Pull requests request → {token.Login} / {project.ProjectName} ({project.RepoNames.Count} repos)\x1b[0m");
 
         var client = await connection.GetClientAsync<GitHttpClient>();
-        var assigned = new List<Models.PullRequest>();
-        var unassigned = new List<Models.PullRequest>();
+        var result = new List<Models.PullRequest>();
 
         foreach (var repoName in project.RepoNames)
         {
@@ -162,17 +147,14 @@ public class AdoProvider(
                     }
                     catch { /* non-fatal */ }
 
-                    var mapped = this.MapPullRequest(pr, repoName, project,
-                        workItemRefs.Select(r => r.Id).ToList());
-
                     bool isAuthor = string.Equals(pr.CreatedBy?.UniqueName, token.Login, StringComparison.OrdinalIgnoreCase);
                     bool isReviewer = pr.Reviewers.Any(r =>
                         string.Equals(r.UniqueName, token.Login, StringComparison.OrdinalIgnoreCase));
 
-                    if (isAuthor || isReviewer)
-                        assigned.Add(mapped);
-                    else if (pr.IsDraft != true && pr.Reviewers.Length == 0)
-                        unassigned.Add(mapped);
+                    if (isAuthor || isReviewer || (pr.IsDraft != true && pr.Reviewers.Length == 0))
+                        result.Add(MapPullRequest(pr, repoName, project,
+                            workItemRefs.Select(r => r.Id).ToList(),
+                            isReviewer, isAuthor));
                 }
             }
             catch (Exception ex)
@@ -181,7 +163,7 @@ public class AdoProvider(
             }
         }
 
-        return (assigned, unassigned);
+        return result;
     }
 
     private Models.WorkItem MapWorkItem(Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models.WorkItem wi, string orgUrl, string projectName)
@@ -251,7 +233,7 @@ public class AdoProvider(
     }
 
     private Models.PullRequest MapPullRequest(GitPullRequest pr, string repoName, AdoMonitoredProject project,
-        List<string>? linkedWorkItemIds = null)
+        List<string>? linkedWorkItemIds = null, bool isAssignedToCurrentUser = false, bool wasCreatedByCurrentUser = false)
     {
         var linkedWorkItemUrls = linkedWorkItemIds?.Count > 0
             ? linkedWorkItemIds.ToDictionary(
@@ -302,7 +284,9 @@ public class AdoProvider(
             Labels: pr.Labels?.Select(l => l.Name).ToList(),
             LinkedWorkItemIds: linkedWorkItemIds,
             LinkedWorkItemUrls: linkedWorkItemUrls,
-            Provider: Models.DataProvider.AzureDevOps);
+            Provider: Models.DataProvider.AzureDevOps,
+            IsAssignedToCurrentUser: isAssignedToCurrentUser,
+            WasCreatedByCurrentUser: wasCreatedByCurrentUser);
     }
 
     private static ReviewerVote MapVote(int vote) => vote switch

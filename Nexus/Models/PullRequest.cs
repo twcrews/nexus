@@ -20,5 +20,7 @@ public record PullRequest(
     IReadOnlyList<string>? Labels = null,
     IReadOnlyList<string>? LinkedWorkItemIds = null,
     IReadOnlyDictionary<string, string>? LinkedWorkItemUrls = null,
-    DataProvider Provider = DataProvider.GitHub
+    DataProvider Provider = DataProvider.GitHub,
+    bool IsAssignedToCurrentUser = false,
+    bool WasCreatedByCurrentUser = false
 );

@@ -31,19 +31,19 @@ else
     <div style="padding:16px;max-width:1600px;margin:0 auto;">
         <MudGrid Spacing="4" Style="margin-bottom:24px;">
             <MudItem xs="6" md="3">
-                <MetricCard Count="@_assignedWorkItems.Count()" Label="work items assigned to you"
+                <MetricCard Count="@_workItems.Count(wi => wi.Assignee != null)" Label="work items assigned to you"
                             Icon="@MudBlazor.FontIcons.MaterialSymbols.Outlined.AssignmentInd" />
             </MudItem>
             <MudItem xs="6" md="3">
-                <MetricCard Count="@_unassignedWorkItems.Count()" Label="unassigned work items"
+                <MetricCard Count="@_workItems.Count(wi => wi.Assignee == null)" Label="unassigned work items"
                             Icon="@MudBlazor.FontIcons.MaterialSymbols.Outlined.AssignmentLate" />
             </MudItem>
             <MudItem xs="6" md="3">
-                <MetricCard Count="@_assignedPrs.Count()" Label="PRs assigned to you"
+                <MetricCard Count="@_pullRequests.Count(pr => pr.IsAssignedToCurrentUser)" Label="PRs assigned to you"
                             Icon="@MudBlazor.FontIcons.MaterialSymbols.Outlined.PersonEdit" />
             </MudItem>
             <MudItem xs="6" md="3">
-                <MetricCard Count="@_unassignedPrs.Count()" Label="unassigned PRs"
+                <MetricCard Count="@_pullRequests.Count(pr => !pr.IsAssignedToCurrentUser)" Label="unassigned PRs"
                             Icon="@MudBlazor.FontIcons.MaterialSymbols.Outlined.RebaseEdit" />
             </MudItem>
         </MudGrid>
@@ -85,17 +85,11 @@ else
 
     private bool _loaded;
     private bool _hasAccounts;
-    private IEnumerable<WorkItem> _assignedWorkItems = [];
-    private IEnumerable<WorkItem> _unassignedWorkItems = [];
-    private IEnumerable<PullRequest> _assignedPrs = [];
-    private IEnumerable<PullRequest> _unassignedPrs = [];
+    private IEnumerable<WorkItem> _workItems = [];
+    private IEnumerable<PullRequest> _pullRequests = [];
 
-    private IEnumerable<WorkItem> _workItems =>
-        _assignedWorkItems.OrderByDescending(x => x.UpdatedAt)
-        .Concat(_unassignedWorkItems.OrderByDescending(x => x.UpdatedAt));
-    private HashSet<string> _assignedWorkItemIds => _assignedWorkItems.Select(x => x.Id).ToHashSet();
-    private IEnumerable<PullRequest> _pullRequests => _assignedPrs.Concat(_unassignedPrs);
-    private HashSet<string> _assignedPrIds => _assignedPrs.Select(x => x.Id).ToHashSet();
+    private HashSet<string> _assignedWorkItemIds => _workItems.Where(wi => wi.Assignee != null).Select(x => x.Id).ToHashSet();
+    private HashSet<string> _assignedPrIds => _pullRequests.Where(pr => pr.IsAssignedToCurrentUser || pr.WasCreatedByCurrentUser).Select(x => x.Id).ToHashSet();
 
     private string? _workItemSearch;
     private string? _prSearch;
@@ -123,10 +117,8 @@ else
         _hasAccounts = TokenStore.GetLinkedAccounts() is { } accounts
             && (accounts.GitHubAccounts.Count > 0 || accounts.MicrosoftAccounts.Count > 0);
         var data = await DataProvider.GetDashboardDataAsync();
-        _assignedWorkItems = data.AssignedWorkItems;
-        _unassignedWorkItems = data.UnassignedWorkItems;
-        _assignedPrs = data.AssignedPullRequests;
-        _unassignedPrs = data.UnassignedPullRequests;
+        _workItems = data.WorkItems.OrderBy(wi => wi.Assignee == null).ThenByDescending(wi => wi.UpdatedAt);
+        _pullRequests = data.PullRequests;
         RefreshService.NotifyRefreshed();
     }
 

@@ -20,15 +20,13 @@ public class AggregateDataProvider(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Provider {Provider} failed", p.GetType().Name);
-                return new DashboardData([], [], [], []);
+                return new DashboardData([], []);
             }
         }));
 
         return new DashboardData(
-            AssignedWorkItems: results.SelectMany(r => r.AssignedWorkItems),
-            UnassignedWorkItems: results.SelectMany(r => r.UnassignedWorkItems),
-            AssignedPullRequests: results.SelectMany(r => r.AssignedPullRequests),
-            UnassignedPullRequests: results.SelectMany(r => r.UnassignedPullRequests)
+            WorkItems: results.SelectMany(r => r.WorkItems),
+            PullRequests: results.SelectMany(r => r.PullRequests)
         );
     }
 

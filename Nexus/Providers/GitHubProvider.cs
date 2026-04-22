@@ -24,22 +24,24 @@ public class GitHubProvider(
     public async Task<DashboardData> GetDashboardDataAsync()
     {
         if (token.MonitoredRepos.Count == 0)
-            return new DashboardData([], [], [], []);
+            return new DashboardData([], []);
 
         GqlCache cache = await FetchGqlCacheAsync();
         return new DashboardData(
-            AssignedWorkItems: cache.Issues
-                .Where(x => x.AssigneeLogin == token.Login)
+            WorkItems: cache.Issues
+                .Where(x => x.AssigneeLogin == token.Login || x.AssigneeLogin is null)
                 .Select(x => x.WorkItem),
-            UnassignedWorkItems: cache.Issues
-                .Where(x => x.AssigneeLogin is null)
-                .Select(x => x.WorkItem),
-            AssignedPullRequests: cache.PullRequests
-                .Where(x => x.AssigneeLogins.Contains(token.Login) || x.ReviewerLogins.Contains(token.Login))
-                .Select(x => x.PullRequest),
-            UnassignedPullRequests: cache.PullRequests
-                .Where(x => !x.AssigneeLogins.Any() && !x.ReviewerLogins.Contains(token.Login) && x.PullRequest.Status != PullRequestStatus.Draft)
-                .Select(x => x.PullRequest)
+            PullRequests: cache.PullRequests
+                .Where(x => x.AssigneeLogins.Contains(token.Login) || x.ReviewerLogins.Contains(token.Login)
+                         || (!x.AssigneeLogins.Any() && !x.ReviewerLogins.Contains(token.Login) && x.PullRequest.Status != PullRequestStatus.Draft))
+                .Select(x =>
+                {
+                    bool assigned = x.AssigneeLogins.Contains(token.Login) || x.ReviewerLogins.Contains(token.Login);
+                    bool created = string.Equals(x.AuthorLogin, token.Login, StringComparison.OrdinalIgnoreCase);
+                    return assigned || created
+                        ? x.PullRequest with { IsAssignedToCurrentUser = assigned, WasCreatedByCurrentUser = created }
+                        : x.PullRequest;
+                })
         );
     }
 
@@ -259,7 +261,7 @@ public class GitHubProvider(
                 .ToDictionary(i => i.Number.ToString(), i => i.Url!)
         );
 
-        return new MappedPr(pr, assigneeLogins, reviewerLogins);
+        return new MappedPr(pr, assigneeLogins, reviewerLogins, node.Author?.Login);
     }
 
     private static WorkItemType InferWorkItemType(IEnumerable<string> labelNames)
@@ -277,7 +279,7 @@ public class GitHubProvider(
 
 internal record GqlCache(List<MappedIssue> Issues, List<MappedPr> PullRequests);
 internal record MappedIssue(WorkItem WorkItem, string? AssigneeLogin);
-internal record MappedPr(PullRequest PullRequest, List<string> AssigneeLogins, List<string> ReviewerLogins);
+internal record MappedPr(PullRequest PullRequest, List<string> AssigneeLogins, List<string> ReviewerLogins, string? AuthorLogin);
 
 // --- JSON models ---
 
