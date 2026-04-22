@@ -30,8 +30,7 @@
             <MudStack Spacing="2">
                 @{
                     var accounts = TokenStore.GetLinkedAccounts();
-                    var hasAny = accounts.DummyAccounts.Count > 0
-                        || accounts.GitHubAccounts.Count > 0
+                    var hasAny = accounts.GitHubAccounts.Count > 0
                         || accounts.MicrosoftAccounts.Count > 0;
                 }
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">

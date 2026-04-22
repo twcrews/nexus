@@ -2,12 +2,9 @@ namespace Nexus.Models;
 
 public class LinkedAccounts
 {
-    public List<DummyAccountToken> DummyAccounts { get; set; } = [];
     public List<MicrosoftAccountToken> MicrosoftAccounts { get; set; } = [];
     public List<GitHubAccountToken> GitHubAccounts { get; set; } = [];
 }
-
-public record DummyAccountToken(string AccountName);
 
 public class MicrosoftAccountToken
 {

@@ -46,22 +46,6 @@ public class SessionTokenStore(IDataProtectionProvider dpProvider, IJSRuntime js
     /// <summary>Returns the in-memory cache. Returns an empty account list if LoadAsync has not been called yet.</summary>
     public LinkedAccounts GetLinkedAccounts() => _cache ?? new();
 
-    public async Task LinkDummyAccountAsync(DummyAccountToken token)
-    {
-        LinkedAccounts accounts = await LoadAsync();
-        accounts.DummyAccounts.Add(token);
-        await PersistAsync(accounts);
-        AccountsChanged?.Invoke();
-    }
-
-    public async Task UnlinkDummyAccountAsync(string accountName)
-    {
-        LinkedAccounts accounts = await LoadAsync();
-        accounts.DummyAccounts.RemoveAll(a => a.AccountName == accountName);
-        await PersistAsync(accounts);
-        AccountsChanged?.Invoke();
-    }
-
     public async Task LinkGitHubAccountAsync(GitHubAccountToken token)
     {
         LinkedAccounts accounts = await LoadAsync();

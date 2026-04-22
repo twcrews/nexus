@@ -117,7 +117,7 @@ else
     private async Task RefreshAsync()
     {
         _hasAccounts = TokenStore.GetLinkedAccounts() is { } accounts
-            && (accounts.GitHubAccounts.Count > 0 || accounts.MicrosoftAccounts.Count > 0 || accounts.DummyAccounts.Count > 0);
+            && (accounts.GitHubAccounts.Count > 0 || accounts.MicrosoftAccounts.Count > 0);
         var data = await DataProvider.GetDashboardDataAsync();
         _assignedWorkItems = data.AssignedWorkItems;
         _unassignedWorkItems = data.UnassignedWorkItems;
