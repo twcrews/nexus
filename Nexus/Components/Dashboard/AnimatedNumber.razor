@@ -1,3 +1,4 @@
+@implements IDisposable
 @DisplayValue
 
 @code {
@@ -6,15 +7,15 @@
     private int DisplayValue;
     private CancellationTokenSource? _cts;
 
-    protected override async Task OnParametersSetAsync()
+    protected override void OnParametersSet()
     {
         _cts?.Cancel();
         _cts = new CancellationTokenSource();
-        var token = _cts.Token;
+        _ = AnimateAsync(DisplayValue, Value, _cts.Token);
+    }
 
-        int from = DisplayValue;
-        int to = Value;
-
+    private async Task AnimateAsync(int from, int to, CancellationToken token)
+    {
         if (from == to) return;
 
         const int durationMs = 1000;
@@ -23,17 +24,23 @@
 
         for (int i = 1; i <= steps; i++)
         {
+            try { await Task.Delay(intervalMs, token); }
+            catch (TaskCanceledException) { return; }
+
             // Ease-out cubic: progress = 1 - (1-t)^3
             double t = (double)i / steps;
             double progress = 1.0 - Math.Pow(1.0 - t, 3);
             DisplayValue = (int)Math.Round(from + (to - from) * progress);
-            StateHasChanged();
-
-            try { await Task.Delay(intervalMs, token); }
-            catch (TaskCanceledException) { return; }
+            await InvokeAsync(StateHasChanged);
         }
 
         DisplayValue = to;
-        StateHasChanged();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
     }
 }

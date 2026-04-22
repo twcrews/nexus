@@ -88,8 +88,8 @@ else
     private IEnumerable<WorkItem> _workItems = [];
     private IEnumerable<PullRequest> _pullRequests = [];
 
-    private HashSet<string> _assignedWorkItemIds => _workItems.Where(wi => wi.Assignee != null).Select(x => x.Id).ToHashSet();
-    private HashSet<string> _assignedPrIds => _pullRequests.Where(pr => pr.IsAssignedToCurrentUser || pr.WasCreatedByCurrentUser).Select(x => x.Id).ToHashSet();
+    private HashSet<string> _assignedWorkItemIds = [];
+    private HashSet<string> _assignedPrIds = [];
 
     private string? _workItemSearch;
     private string? _prSearch;
@@ -119,13 +119,18 @@ else
         var data = await DataProvider.GetDashboardDataAsync();
         _workItems = data.WorkItems.OrderBy(wi => wi.Assignee == null).ThenByDescending(wi => wi.UpdatedAt);
         _pullRequests = data.PullRequests;
+        _assignedWorkItemIds = _workItems.Where(wi => wi.Assignee != null).Select(x => x.Id).ToHashSet();
+        _assignedPrIds = _pullRequests.Where(pr => pr.IsAssignedToCurrentUser || pr.WasCreatedByCurrentUser).Select(x => x.Id).ToHashSet();
         RefreshService.NotifyRefreshed();
     }
 
-    private async void OnAccountsChanged()
+    private void OnAccountsChanged()
     {
-        await RefreshAsync();
-        await InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshAsync();
+            StateHasChanged();
+        });
     }
 
     private async Task RunRefreshLoopAsync(CancellationToken ct)
