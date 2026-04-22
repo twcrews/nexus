@@ -289,7 +289,7 @@ public class AdoProvider(
             WasCreatedByCurrentUser: wasCreatedByCurrentUser);
     }
 
-    private static ReviewerVote MapVote(int vote) => vote switch
+    internal static ReviewerVote MapVote(int vote) => vote switch
     {
         10 => ReviewerVote.Approved,
         5 => ReviewerVote.ApprovedWithSuggestions,
@@ -298,7 +298,7 @@ public class AdoProvider(
         _ => ReviewerVote.None
     };
 
-    private static string? BuildAreaPathFilter(TeamFieldValues teamFieldValues)
+    internal static string? BuildAreaPathFilter(TeamFieldValues teamFieldValues)
     {
         var values = teamFieldValues?.Values?.ToList();
         if (values is not { Count: > 0 })
@@ -312,5 +312,5 @@ public class AdoProvider(
         return $"({string.Join(" OR ", conditions)})";
     }
 
-    private static string EscapeWiql(string value) => value.Replace("'", "''");
+    internal static string EscapeWiql(string value) => value.Replace("'", "''");
 }

@@ -264,7 +264,7 @@ public class GitHubProvider(
         return new MappedPr(pr, assigneeLogins, reviewerLogins, node.Author?.Login);
     }
 
-    private static WorkItemType InferWorkItemType(IEnumerable<string> labelNames)
+    internal static WorkItemType InferWorkItemType(IEnumerable<string> labelNames)
     {
         var names = labelNames.Select(n => n.ToLowerInvariant()).ToHashSet();
         if (names.Contains("bug") || names.Contains("defect"))       return WorkItemType.Bug;
