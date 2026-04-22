@@ -32,13 +32,6 @@ builder.Services.AddHttpClient("GitHub", client =>
 
 WebApplication app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHsts();
-}
-app.UseHttpsRedirection();
-
 app.UseAntiforgery();
 
 app.MapStaticAssets();
