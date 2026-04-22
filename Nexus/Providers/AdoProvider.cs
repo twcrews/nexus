@@ -62,6 +62,8 @@ public class AdoProvider(
         if (project.TeamNames.Count == 0)
             return ([], []);
 
+        Console.WriteLine($"\x1b[33m[ADO] Work items request → {token.Login} / {project.ProjectName} ({project.TeamNames.Count} teams)\x1b[0m");
+
         var client = await connection.GetClientAsync<WorkItemTrackingHttpClient>();
         string[] fields = [
             "System.Id", "System.Title", "System.Description", "System.WorkItemType",
@@ -135,6 +137,8 @@ public class AdoProvider(
     {
         if (project.RepoNames.Count == 0)
             return ([], []);
+
+        Console.WriteLine($"\x1b[33m[ADO] Pull requests request → {token.Login} / {project.ProjectName} ({project.RepoNames.Count} repos)\x1b[0m");
 
         var client = await connection.GetClientAsync<GitHttpClient>();
         var assigned = new List<Models.PullRequest>();
