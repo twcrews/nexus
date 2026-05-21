@@ -85,7 +85,7 @@ public class GitHubProvider(
         var repoFragment = """
             issues(first: 100, states: [OPEN]) {
               nodes {
-                number title body url createdAt updatedAt
+                number title body url state createdAt updatedAt
                 author { login avatarUrl ... on User { name } }
                 assignees(first: 20) { nodes { login avatarUrl name } }
                 labels(first: 20) { nodes { name } }
@@ -173,7 +173,7 @@ public class GitHubProvider(
             Description: node.Body,
             Creator: author,
             Assignee: assigneeRef,
-            Status: WorkItemStatus.Active,
+            Status: FormatGitHubState(node.State),
             CreatedAt: node.CreatedAt,
             UpdatedAt: node.UpdatedAt,
             Labels: node.Labels.Nodes.Select(l => l.Name).ToList(),
@@ -182,6 +182,13 @@ public class GitHubProvider(
 
         return new MappedIssue(workItem, firstAssignee?.Login);
     }
+
+    private static string FormatGitHubState(string? state) => state switch
+    {
+        null or "" => "Open",
+        _ => string.Join(' ', state.Split('_', StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => string.Concat(part[..1].ToUpperInvariant(), part[1..].ToLowerInvariant())))
+    };
 
     private static MappedPr MapPr(GqlPr node)
     {
@@ -301,6 +308,7 @@ internal record GqlIssue(
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("body")] string? Body,
     [property: JsonPropertyName("url")] string? Url,
+    [property: JsonPropertyName("state")] string? State,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
     [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
     [property: JsonPropertyName("author")] GqlActor? Author,

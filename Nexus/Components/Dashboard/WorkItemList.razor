@@ -22,7 +22,7 @@
                                  Color="@TypeColor(context.Item.Type)"
                                  Size="Size.Small" />
                     </MudTooltip>
-                    <MudTooltip Text="@SplitPascal(context.Item.Status)" Placement="Placement.Right">
+                    <MudTooltip Text="@FormatStatus(context.Item.Status)" Placement="Placement.Right">
                         <MudIcon Icon="@StatusIcon(context.Item.Status)"
                                  Color="@StatusColor(context.Item.Status)"
                                  Size="Size.Small" />
@@ -72,7 +72,7 @@
                     <MudChip T="string" Size="Size.Small" Icon="@TypeIcon(wi.Type)" Color="@TypeColor(wi.Type)"
                              Variant="Variant.Outlined" Style="font-weight:600;">@SplitPascal(wi.Type)</MudChip>
                     <MudChip T="string" Size="Size.Small" Icon="@StatusIcon(wi.Status)" Color="@StatusColor(wi.Status)"
-                             Variant="Variant.Outlined" Style="font-weight:600;"> @SplitPascal(wi.Status)</MudChip>
+                             Variant="Variant.Outlined" Style="font-weight:600;"> @FormatStatus(wi.Status)</MudChip>
                     @if (details?.Priority is { } priority)
                     {
                         <MudChip T="string" Size="Size.Small" Color="Color.Default"
@@ -261,7 +261,7 @@
             x.Description ?? "",
             x.Assignee?.Name ?? "unassigned",
             x.Creator.Name,
-            x.Status.ToString(),
+            x.Status,
             string.Join(' ', x.Labels)
         ).ToLowerInvariant();
         return term.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries)
@@ -382,25 +382,37 @@
         _                      => Color.Default,
     };
 
-    private static string StatusIcon(WorkItemStatus s) => s switch
+    private static string FormatStatus(string? status) => string.IsNullOrWhiteSpace(status) ? "Unknown" : status;
+
+    private static string NormalizedStatus(string? status) => (status ?? "")
+        .Replace(" ", "", StringComparison.Ordinal)
+        .Replace("-", "", StringComparison.Ordinal)
+        .Replace("_", "", StringComparison.Ordinal)
+        .ToLowerInvariant();
+
+    private static string StatusIcon(string? s) => NormalizedStatus(s) switch
     {
-        WorkItemStatus.New        => Icons.Material.Filled.FiberNew,
-        WorkItemStatus.Active     => Icons.Material.Filled.PlayCircle,
-        WorkItemStatus.InProgress => Icons.Material.Filled.Autorenew,
-        WorkItemStatus.Resolved   => Icons.Material.Filled.CheckCircle,
-        WorkItemStatus.Closed     => Icons.Material.Filled.Cancel,
-        WorkItemStatus.Blocked    => Icons.Material.Filled.Block,
-        _                         => Icons.Material.Filled.Circle,
+        "new" or "proposed" or "todo" => Icons.Material.Filled.FiberNew,
+        "active" or "open" => Icons.Material.Filled.PlayCircle,
+        "inprogress" or "committed" or "doing" => Icons.Material.Filled.Autorenew,
+        "resolved" => Icons.Material.Filled.CheckCircle,
+        "readyfortesting" or "readytotest" or "readyfortest" => Icons.Material.Filled.Science,
+        "readyforrelease" or "readyforrelase" => Icons.Material.Filled.RocketLaunch,
+        "closed" or "done" or "completed" or "removed" => Icons.Material.Filled.Cancel,
+        "blocked" or "impediment" => Icons.Material.Filled.Block,
+        _ => Icons.Material.Filled.Circle,
     };
 
-    private static Color StatusColor(WorkItemStatus s) => s switch
+    private static Color StatusColor(string? s) => NormalizedStatus(s) switch
     {
-        WorkItemStatus.New                                        => Color.Info,
-        WorkItemStatus.Active or WorkItemStatus.InProgress        => Color.Primary,
-        WorkItemStatus.Resolved                                   => Color.Success,
-        WorkItemStatus.Closed                                     => Color.Default,
-        WorkItemStatus.Blocked                                    => Color.Error,
-        _                                                         => Color.Secondary,
+        "new" or "proposed" or "todo" => Color.Info,
+        "active" or "open" or "inprogress" or "committed" or "doing" => Color.Primary,
+        "resolved" => Color.Success,
+        "readyfortesting" or "readytotest" or "readyfortest" => Color.Tertiary,
+        "readyforrelease" or "readyforrelase" => Color.Success,
+        "closed" or "done" or "completed" or "removed" => Color.Default,
+        "blocked" or "impediment" => Color.Error,
+        _ => Color.Secondary,
     };
 
     private static string Relative(DateTimeOffset dt)

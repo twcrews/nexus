@@ -179,16 +179,7 @@ public class AdoProvider(
             _ => NexusWiType.Task
         };
 
-        var status = (Get("System.State") ?? "").ToLowerInvariant() switch
-        {
-            "new" => WorkItemStatus.New,
-            "active" => WorkItemStatus.Active,
-            "in progress" => WorkItemStatus.InProgress,
-            "resolved" => WorkItemStatus.Resolved,
-            "closed" or "done" => WorkItemStatus.Closed,
-            "blocked" => WorkItemStatus.Blocked,
-            _ => WorkItemStatus.Active
-        };
+        var status = Get("System.State") ?? "Unknown";
 
         string? assigneeName = wi.Fields.TryGetValue("System.AssignedTo", out var at)
             ? (at is IdentityRef ir ? ir.DisplayName : at?.ToString()) : null;
