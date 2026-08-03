@@ -2,8 +2,10 @@
 @inject RefreshService RefreshService
 @inject SessionTokenStore TokenStore
 @inject IHttpClientFactory HttpClientFactory
+@inject ISnackbar Snackbar
 @implements IDisposable
 @using System.Text.Json
+@using System.Text.Json.Serialization
 @using Microsoft.TeamFoundation.SourceControl.WebApi
 @using Microsoft.TeamFoundation.WorkItemTracking.WebApi
 @using Microsoft.VisualStudio.Services.Common
@@ -74,7 +76,8 @@ else
                 </MudStack>
                 <PullRequestList Items="_pullRequests" SearchTerm="@_prSearch"
                                 AssignedPrIds="@_assignedPrIds"
-                                FetchDescription="@FetchPrDescriptionAsync" />
+                                FetchDescription="@FetchPrDescriptionAsync"
+                                AssignReviewer="@AssignSelfAsReviewerAsync" />
             </MudItem>
         </MudGrid>
     </div>
@@ -304,6 +307,221 @@ else
             return null;
         }
     }
+
+    private async Task<PullRequest?> AssignSelfAsReviewerAsync(PullRequest pr)
+    {
+        try
+        {
+            var updated = pr.Provider switch
+            {
+                Nexus.Models.DataProvider.GitHub => await AssignGitHubSelfAsReviewerAsync(pr),
+                Nexus.Models.DataProvider.AzureDevOps => await AssignAdoSelfAsReviewerAsync(pr),
+                _ => throw new InvalidOperationException("Unsupported pull request provider.")
+            };
+
+            await RefreshAsync();
+            MarkPullRequestAsUserAssociated(updated);
+            await InvokeAsync(StateHasChanged);
+            Snackbar.Add("Assigned you as a reviewer.", Severity.Success);
+            return updated;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not assign you as a reviewer: {ex.Message}", Severity.Error);
+            return null;
+        }
+    }
+
+    private void MarkPullRequestAsUserAssociated(PullRequest updated)
+    {
+        _assignedPrIds.Add(updated.Id);
+        _pullRequests = _pullRequests
+            .Select(pr => pr.Id == updated.Id ? updated : pr)
+            .ToList();
+    }
+
+    private async Task<PullRequest> AssignGitHubSelfAsReviewerAsync(PullRequest pr)
+    {
+        if (!TryParseGitHubPrUrl(pr, out var location))
+            throw new InvalidOperationException("Could not determine the GitHub pull request.");
+
+        var repoFullName = $"{location.Owner}/{location.Repo}";
+        var token = TokenStore.GetLinkedAccounts().GitHubAccounts
+            .FirstOrDefault(a => a.MonitoredRepos.Any(r => r.Equals(repoFullName, StringComparison.OrdinalIgnoreCase)))
+            ?? TokenStore.GetLinkedAccounts().GitHubAccounts.FirstOrDefault();
+        if (token is null)
+            throw new InvalidOperationException("No linked GitHub account can access this pull request.");
+
+        var client = HttpClientFactory.CreateClient("GitHub");
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.PersonalAccessToken);
+
+        var url = $"repos/{Uri.EscapeDataString(location.Owner)}/{Uri.EscapeDataString(location.Repo)}/pulls/{location.PullRequestNumber}/requested_reviewers";
+        using var response = await client.PostAsJsonAsync(url, new { reviewers = new[] { token.Login } });
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ReadErrorAsync(response));
+
+        return WithSelfReviewer(pr, string.IsNullOrWhiteSpace(token.DisplayName) ? token.Login : token.DisplayName, token.AvatarUrl);
+    }
+
+    private async Task<PullRequest> AssignAdoSelfAsReviewerAsync(PullRequest pr)
+    {
+        var accounts = TokenStore.GetLinkedAccounts().MicrosoftAccounts;
+        if (!TryParseAdoPrUrl(pr, accounts, out var location))
+            throw new InvalidOperationException("Could not determine the Azure DevOps pull request.");
+
+        var token = accounts.FirstOrDefault(a => string.Equals(
+                a.OrgUrl.TrimEnd('/'), location.OrgUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+            ?? accounts.FirstOrDefault(a => pr.Url?.StartsWith(a.OrgUrl.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase) == true);
+        if (token is null)
+            throw new InvalidOperationException("No linked Azure DevOps account can access this pull request.");
+
+        var client = HttpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Nexus/1.0");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Basic", Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes($":{token.PersonalAccessToken}")));
+
+        var connData = await client.GetFromJsonAsync<AdoConnectionDataDto>(
+            $"{location.OrgUrl.TrimEnd('/')}/_apis/connectionData?connectOptions=1&api-version=7.2-preview.1");
+        var user = connData?.AuthenticatedUser
+            ?? throw new InvalidOperationException("Could not resolve your Azure DevOps identity.");
+
+        var uniqueName = user.Properties?.Account?.Value ?? token.Login;
+        var reviewerId = user.Id ?? user.SubjectDescriptor ?? uniqueName;
+        if (string.IsNullOrWhiteSpace(reviewerId))
+            throw new InvalidOperationException("Could not resolve your Azure DevOps identity ID.");
+
+        var url = $"{location.OrgUrl.TrimEnd('/')}/{Uri.EscapeDataString(location.Project)}/_apis/git/repositories/{Uri.EscapeDataString(location.Repo)}/pullRequests/{location.PullRequestId}/reviewers/{Uri.EscapeDataString(reviewerId)}?api-version=7.2-preview.1";
+        using var response = await client.PutAsJsonAsync(url, new
+        {
+            id = reviewerId,
+            uniqueName,
+            displayName = user.ProviderDisplayName ?? token.DisplayName,
+            vote = 0,
+            isRequired = true
+        });
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ReadErrorAsync(response));
+
+        return WithSelfReviewer(pr, string.IsNullOrWhiteSpace(token.DisplayName) ? uniqueName : token.DisplayName, null);
+    }
+
+    private static PullRequest WithSelfReviewer(PullRequest pr, string name, string? avatarUrl)
+    {
+        var reviewer = new ReviewerReference(new UserReference(name, avatarUrl), ReviewerVote.None);
+        return pr with
+        {
+            Reviewers = pr.Reviewers.Concat([reviewer]).ToList(),
+            IsAssignedToCurrentUser = true
+        };
+    }
+
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        if (string.IsNullOrWhiteSpace(body))
+            return $"{(int)response.StatusCode} {response.ReasonPhrase}";
+
+        return body.Length > 300 ? body[..300] : body;
+    }
+
+    private static bool TryParseGitHubPrUrl(PullRequest pr, out GitHubPrLocation location)
+    {
+        location = new GitHubPrLocation("", "", 0);
+        if (pr.Url is null || !Uri.TryCreate(pr.Url, UriKind.Absolute, out var uri)) return false;
+        if (!uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var segments = uri.AbsolutePath.Trim('/').Split('/');
+        if (segments.Length < 4 || !segments[2].Equals("pull", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!int.TryParse(segments[3], out var number)) return false;
+
+        location = new GitHubPrLocation(
+            Uri.UnescapeDataString(segments[0]),
+            Uri.UnescapeDataString(segments[1]),
+            number);
+        return true;
+    }
+
+    private static bool TryParseAdoPrUrl(PullRequest pr, IEnumerable<MicrosoftAccountToken> accounts, out AdoPrLocation location)
+    {
+        location = new AdoPrLocation("", "", "", 0);
+        if (pr.Url is null || !Uri.TryCreate(pr.Url, UriKind.Absolute, out var uri)) return false;
+
+        var path = uri.AbsolutePath.TrimStart('/');
+        var gitIdx = path.IndexOf("/_git/", StringComparison.OrdinalIgnoreCase);
+        var prIdx = path.IndexOf("/pullrequest/", StringComparison.OrdinalIgnoreCase);
+        if (gitIdx < 0 || prIdx < 0 || prIdx <= gitIdx) return false;
+        if (!int.TryParse(path[(prIdx + "/pullrequest/".Length)..].Split('/')[0], out var prId)) return false;
+
+        var beforeGit = path[..gitIdx];
+        var repo = Uri.UnescapeDataString(path[(gitIdx + "/_git/".Length)..prIdx]);
+        string orgUrl;
+        string projectPath;
+
+        if (uri.Host.Equals("dev.azure.com", StringComparison.OrdinalIgnoreCase))
+        {
+            var slashIdx = beforeGit.IndexOf('/');
+            if (slashIdx < 0) return false;
+            orgUrl = $"{uri.Scheme}://dev.azure.com/{beforeGit[..slashIdx]}";
+            projectPath = beforeGit[(slashIdx + 1)..];
+        }
+        else
+        {
+            var matchingAccount = accounts
+                .Where(a => !string.IsNullOrWhiteSpace(a.OrgUrl)
+                    && pr.Url.StartsWith(a.OrgUrl.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(a => a.OrgUrl.Length)
+                .FirstOrDefault();
+
+            if (matchingAccount is not null)
+            {
+                orgUrl = matchingAccount.OrgUrl.TrimEnd('/');
+                projectPath = StripOrgPath(beforeGit, orgUrl);
+            }
+            else
+            {
+                orgUrl = $"{uri.Scheme}://{uri.Host}";
+                projectPath = beforeGit.Contains('/') ? beforeGit[(beforeGit.LastIndexOf('/') + 1)..] : beforeGit;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(projectPath) || string.IsNullOrWhiteSpace(repo)) return false;
+        location = new AdoPrLocation(orgUrl, Uri.UnescapeDataString(projectPath), repo, prId);
+        return true;
+    }
+
+    private static string StripOrgPath(string pathBeforeGit, string orgUrl)
+    {
+        if (!Uri.TryCreate(orgUrl.TrimEnd('/') + "/", UriKind.Absolute, out var orgUri))
+            return pathBeforeGit;
+
+        var orgPath = orgUri.AbsolutePath.Trim('/');
+        if (!string.IsNullOrEmpty(orgPath)
+            && pathBeforeGit.StartsWith(orgPath + "/", StringComparison.OrdinalIgnoreCase))
+            return pathBeforeGit[(orgPath.Length + 1)..];
+
+        return pathBeforeGit.Contains('/') ? pathBeforeGit[(pathBeforeGit.LastIndexOf('/') + 1)..] : pathBeforeGit;
+    }
+
+    private record GitHubPrLocation(string Owner, string Repo, int PullRequestNumber);
+
+    private record AdoPrLocation(string OrgUrl, string Project, string Repo, int PullRequestId);
+
+    private record AdoConnectionDataDto(
+        [property: JsonPropertyName("authenticatedUser")] AdoConnectionUserDto? AuthenticatedUser);
+
+    private record AdoConnectionUserDto(
+        [property: JsonPropertyName("id")] string? Id,
+        [property: JsonPropertyName("providerDisplayName")] string? ProviderDisplayName,
+        [property: JsonPropertyName("subjectDescriptor")] string? SubjectDescriptor,
+        [property: JsonPropertyName("properties")] AdoConnectionUserPropertiesDto? Properties);
+
+    private record AdoConnectionUserPropertiesDto(
+        [property: JsonPropertyName("Account")] AdoConnectionUserPropertyValueDto? Account);
+
+    private record AdoConnectionUserPropertyValueDto(
+        [property: JsonPropertyName("$value")] string? Value);
 
     public void Dispose()
     {

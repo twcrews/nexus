@@ -73,6 +73,26 @@
                     <MudChip Size="Size.Small">@pr.Target.Repository</MudChip>
                 </MudText>
                 <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    @if (CanAssignSelf(pr))
+                    {
+                        <span @onclick:stopPropagation="true">
+                            <MudTooltip Text="@(_assigningReviewerIds.Contains(pr.Id) ? "Assigning you as reviewer..." : "Assign yourself as reviewer")">
+                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                           Disabled="@_assigningReviewerIds.Contains(pr.Id)"
+                                           OnClick="@(() => OnAssignSelfAsReviewerAsync(pr))"
+                                           Style="min-width:32px;padding:4px;">
+                                    @if (_assigningReviewerIds.Contains(pr.Id))
+                                    {
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Inherit" />
+                                    }
+                                    else
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.PersonAdd" Size="Size.Small" />
+                                    }
+                                </MudButton>
+                            </MudTooltip>
+                        </span>
+                    }
                     @if (pr.Status == PullRequestStatus.Draft)
                     {
                         <MudChip T="string" Size="Size.Small" Color="Color.Default" Icon="@Icons.Material.Filled.EditNote"
@@ -166,6 +186,7 @@
     [Parameter] public string? SearchTerm { get; set; }
     [Parameter] public HashSet<string>? AssignedPrIds { get; set; }
     [Parameter] public Func<PullRequest, Task<string?>>? FetchDescription { get; set; }
+    [Parameter] public Func<PullRequest, Task<PullRequest?>>? AssignReviewer { get; set; }
 
     // Stable object references keyed by ID so MudDataGrid's internal OpenHierarchies
     // set keeps valid references across data refreshes, preserving expanded row state.
@@ -173,6 +194,7 @@
 
     private readonly Dictionary<string, string?> _fetchedDescriptions = new();
     private readonly HashSet<string> _loadingDescriptions = new();
+    private readonly HashSet<string> _assigningReviewerIds = new();
 
     public override async Task SetParametersAsync(ParameterView parameters)
     {
@@ -217,11 +239,35 @@
         });
     }
 
+    private bool CanAssignSelf(PullRequest pr) =>
+        AssignReviewer is not null && !pr.IsAssignedToCurrentUser;
+
+    private async Task OnAssignSelfAsReviewerAsync(PullRequest pr)
+    {
+        if (AssignReviewer is null || _assigningReviewerIds.Contains(pr.Id)) return;
+
+        _assigningReviewerIds.Add(pr.Id);
+        try
+        {
+            var updated = await AssignReviewer(pr);
+            if (updated is not null)
+                _stableItems[pr.Id] = updated;
+        }
+        finally
+        {
+            _assigningReviewerIds.Remove(pr.Id);
+            StateHasChanged();
+        }
+    }
+
     private string? RowStyle(PullRequest item, int _) =>
         item.Url is not null ? "cursor:pointer;" : null;
 
     private string RowClass(PullRequest item, int _) =>
-        AssignedPrIds?.Contains(item.Id) == true ? "assigned-row" : "";
+        IsUserAssociated(item) ? "assigned-row" : "";
+
+    private bool IsUserAssociated(PullRequest item) =>
+        AssignedPrIds?.Contains(item.Id) == true || item.IsAssignedToCurrentUser || item.WasCreatedByCurrentUser;
 
     private List<PullRequest> _items
     {
@@ -231,7 +277,7 @@
             var source = _stableItems.Values;
             var filtered = string.IsNullOrWhiteSpace(SearchTerm) ? source : source.Where(x => FuzzyMatch(SearchTerm, x));
             return filtered
-                .OrderByDescending(x => AssignedPrIds?.Contains(x.Id) == true)
+                .OrderByDescending(IsUserAssociated)
                 .ThenByDescending(x => x.UpdatedAt)
                 .ToList();
         }
